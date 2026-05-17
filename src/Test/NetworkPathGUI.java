@@ -318,6 +318,7 @@ class GraphPanel extends JPanel {
     private void calculateNodePositions() {
         if (agent == null) return;
         Map<String, List<Edge>> graph = agent.getGraph(); // 需要添加 getter
+        nodePositions.clear();
         Set<String> nodes = graph.keySet();
         if (nodes.isEmpty()) return;
         int n = nodes.size();

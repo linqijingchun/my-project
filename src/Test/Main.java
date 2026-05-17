@@ -56,7 +56,14 @@ class PathOptimizerAgent {
         graph.putIfAbsent(node, new ArrayList<>());
     }
 
+    private void validateWeight(int weight) {
+        if (weight <= 0) {
+            throw new IllegalArgumentException("权重必须是正整数");
+        }
+    }
+
     public void addDirectedEdge(String from, String to, int weight) {
+        validateWeight(weight);
         ensureNode(from);
         ensureNode(to);
         graph.get(from).add(new Edge(to, weight));
@@ -68,10 +75,18 @@ class PathOptimizerAgent {
     }
 
     public void updateWeight(String from, String to, int newWeight) {
-        if (!graph.containsKey(from)) return;
+        validateWeight(newWeight);
+        if (!graph.containsKey(from) || !graph.containsKey(to)) {
+            throw new IllegalArgumentException("节点不存在: " + from + " 或 " + to);
+        }
         List<Edge> edges = graph.get(from);
-        edges.removeIf(e -> e.target.equals(to));
-        edges.add(new Edge(to, newWeight));
+        for (Edge edge : edges) {
+            if (edge.target.equals(to)) {
+                edge.weight = newWeight;
+                return;
+            }
+        }
+        throw new IllegalArgumentException("边不存在: " + from + " -> " + to);
     }
 
     public void removeEdge(String from, String to) {
@@ -190,7 +205,11 @@ class PathOptimizerAgent {
                 System.err.println("权重不是整数: " + line);
                 continue;
             }
-            addDirectedEdge(from, to, weight);
+            try {
+                addDirectedEdge(from, to, weight);
+            } catch (IllegalArgumentException e) {
+                System.err.println("忽略无效行: " + line + "，" + e.getMessage());
+            }
         }
     }
 
@@ -260,17 +279,18 @@ class PathOptimizerAgent {
 
     private void backtrack(String src, String node, Map<String, List<String>> prevList,
                            List<String> current, List<List<String>> result) {
+        current.add(node);
         if (node.equals(src)) {
             List<String> path = new ArrayList<>(current);
             Collections.reverse(path);
             result.add(path);
+            current.remove(current.size() - 1);
             return;
         }
         for (String prev : prevList.get(node)) {
-            current.add(prev);
             backtrack(src, prev, prevList, current, result);
-            current.remove(current.size() - 1);
         }
+        current.remove(current.size() - 1);
     }
 }
 
