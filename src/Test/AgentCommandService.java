@@ -16,45 +16,61 @@ class AgentCommandService {
             return AgentResponse.error("请输入命令");
         }
 
-        line = intentParser.parse(line);
+        String originalInput = line;
+        String normalizedCommand = intentParser.parse(line);
 
-        String[] parts = line.trim().split("\\s+");
+        String[] parts = normalizedCommand.trim().split("\\s+");
         String cmd = parts[0].toLowerCase();
+        AgentResponse response;
 
         try {
             switch (cmd) {
                 case "add":
-                    return handleAddDirectedEdge(parts);
+                    response = handleAddDirectedEdge(parts);
+                    break;
                 case "addud":
-                    return handleAddUndirectedEdge(parts);
+                    response = handleAddUndirectedEdge(parts);
+                    break;
                 case "path":
-                    return handleShortestPath(parts);
+                    response = handleShortestPath(parts);
+                    break;
                 case "reach":
-                    return handleReachable(parts);
+                    response = handleReachable(parts);
+                    break;
                 case "update":
-                    return handleUpdateWeight(parts);
+                    response = handleUpdateWeight(parts);
+                    break;
                 case "remove":
-                    return handleRemoveEdge(parts);
+                    response = handleRemoveEdge(parts);
+                    break;
                 case "show":
-                    return handleShowGraph(parts);
+                    response = handleShowGraph(parts);
+                    break;
                 case "load":
-                    return handleLoad(parts);
+                    response = handleLoad(parts);
+                    break;
                 case "save":
-                    return handleSave(parts);
+                    response = handleSave(parts);
+                    break;
                 case "allpaths":
-                    return handleAllShortestPaths(parts);
+                    response = handleAllShortestPaths(parts);
+                    break;
                 case "help":
-                    return handleHelp();
+                    response = handleHelp();
+                    break;
                 default:
-                    return AgentResponse.error("未知命令，请重新输入");
+                    response = AgentResponse.error("未知命令，请重新输入");
+                    break;
             }
         } catch (NumberFormatException e) {
-            return AgentResponse.error("权重必须是整数");
+            response = AgentResponse.error("权重必须是整数");
         } catch (IllegalArgumentException e) {
-            return AgentResponse.error("错误: " + e.getMessage());
+            response = AgentResponse.error("错误: " + e.getMessage());
         } catch (Exception e) {
-            return AgentResponse.error("错误: " + e.toString());
+            response = AgentResponse.error("错误: " + e.toString());
         }
+
+        return response.withCommandInfo(originalInput, normalizedCommand);
     }
 
     private AgentResponse handleAddDirectedEdge(String[] parts) {

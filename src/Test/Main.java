@@ -19,6 +19,10 @@ public class Main {
             }
 
             AgentResponse response = commandService.handle(line);
+            if (response.getNormalizedCommand() != null
+                    && !response.getNormalizedCommand().equals(response.getOriginalInput())) {
+                System.out.println("识别为命令: " + response.getNormalizedCommand());
+            }
             System.out.println(response.getMessage());
         }
 

@@ -90,7 +90,15 @@ class IntentParser {
     }
 
     private String parseUpdateWeight(String text) {
-        if (!(text.contains("修改") || text.contains("更新") || text.contains("改成") || text.contains("调整"))) {
+        if (!(text.contains("修改")
+                || text.contains("更新")
+                || text.contains("改成")
+                || text.contains("改为")
+                || text.contains("变成")
+                || text.contains("设为")
+                || text.contains("设置")
+                || text.contains("调整")
+                || text.contains("将"))) {
             return null;
         }
 
@@ -188,7 +196,7 @@ class IntentParser {
 
     private String[] extractEdgeWithWeight(String text) {
         Pattern pattern = Pattern.compile(
-                "([A-Za-z0-9_]+)\\s*(?:到|->|至|和|与)\\s*([A-Za-z0-9_]+).*?(?:长度|权重|距离|代价|花费|成本)\\s*(?:为|是|=)?\\s*(\\d+)"
+                "([A-Za-z0-9_]+)\\s*(?:到|->|至|和|与)\\s*([A-Za-z0-9_]+).*?(?:长度|权重|距离|代价|花费|成本)\\s*(?:为|是|=|改成|改为|变成|设为|调整为)?\\s*(\\d+)"
         );
 
         Matcher matcher = pattern.matcher(text);
