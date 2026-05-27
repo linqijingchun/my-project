@@ -5,10 +5,16 @@ import java.util.Map;
 
 class AgentCommandService {
     private final PathOptimizerAgent agent;
+    private final AgentContext context;
     private final IntentParser intentParser = new IntentParser();
 
     AgentCommandService(PathOptimizerAgent agent) {
+        this(agent, new AgentContext());
+    }
+
+    AgentCommandService(PathOptimizerAgent agent, AgentContext context) {
         this.agent = agent;
+        this.context = context;
     }
 
     AgentResponse handle(String line) {
@@ -55,6 +61,9 @@ class AgentCommandService {
                 case "allpaths":
                     response = handleAllShortestPaths(parts);
                     break;
+                case "explain":
+                    response = handleExplain();
+                    break;
                 case "help":
                     response = handleHelp();
                     break;
@@ -70,7 +79,9 @@ class AgentCommandService {
             response = AgentResponse.error("错误: " + e.toString());
         }
 
-        return response.withCommandInfo(originalInput, normalizedCommand);
+        AgentResponse responseWithCommandInfo = response.withCommandInfo(originalInput, normalizedCommand);
+        context.rememberCommand(originalInput, normalizedCommand, responseWithCommandInfo.isSuccess());
+        return responseWithCommandInfo;
     }
 
     private AgentResponse handleAddDirectedEdge(String[] parts) {
@@ -108,6 +119,7 @@ class AgentCommandService {
         String dst = parts[2];
 
         PathOptimizerAgent.PathResult result = agent.shortestPath(src, dst);
+        context.rememberPath(src, dst, result);
 
         if (result == null) {
             return AgentResponse.error(src + " 到 " + dst + " 不可达");
@@ -117,6 +129,10 @@ class AgentCommandService {
                 + "\n总代价: " + result.totalCost;
 
         return AgentResponse.successWithPath(message, result);
+    }
+
+    AgentContext getContext() {
+        return context;
     }
 
     private AgentResponse handleReachable(String[] parts) {
@@ -240,6 +256,30 @@ class AgentCommandService {
         return AgentResponse.successWithPaths(sb.toString(), results);
     }
 
+    private AgentResponse handleExplain() {
+        if (!context.hasLastPath()) {
+            return AgentResponse.error("目前还没有可解释的路径查询，请先执行 path <src> <dst>。");
+        }
+
+        PathOptimizerAgent.PathResult result = context.getLastPathResult();
+
+        String message = "最近一次查询是 "
+                + context.getLastSource()
+                + " 到 "
+                + context.getLastTarget()
+                + "。\n最短路径为 "
+                + String.join(" -> ", result.path)
+                + "。\n总代价为 "
+                + result.totalCost
+                + "。\n这是当前图中从 "
+                + context.getLastSource()
+                + " 到 "
+                + context.getLastTarget()
+                + " 的最小总代价路径。";
+
+        return AgentResponse.successWithPath(message, result);
+    }
+
     private AgentResponse handleHelp() {
         return AgentResponse.success(
                 "网络路径寻优智能体使用指南\n"
@@ -255,6 +295,7 @@ class AgentCommandService {
                         + "  show                            显示当前拓扑\n"
                         + "  load <filename>                 从文件加载拓扑\n"
                         + "  save <filename>                 保存拓扑到文件\n"
+                        + "  explain                         解释最近一次路径查询\n"
                         + "  exit                            退出程序\n"
                         + "\n"
                         + "二、自然语言示例\n"
@@ -266,6 +307,8 @@ class AgentCommandService {
                         + "  把A到B的权重改成4\n"
                         + "  删除A到B的边\n"
                         + "  显示当前拓扑\n"
+                        + "  为什么\n"
+                        + "  解释一下\n"
                         + "\n"
                         + "三、说明\n"
                         + "  节点名建议使用字母、数字或下划线，例如 A、B、Router1。\n"

@@ -38,6 +38,9 @@ class IntentParser {
         command = parseReachable(text);
         if (command != null) return command;
 
+        command = parseExplain(text);
+        if (command != null) return command;
+
         command = parseShowGraph(text);
         if (command != null) return command;
 
@@ -56,6 +59,7 @@ class IntentParser {
                 || first.equals("load")
                 || first.equals("save")
                 || first.equals("allpaths")
+                || first.equals("explain")
                 || first.equals("help");
     }
 
@@ -207,6 +211,18 @@ class IntentParser {
                     matcher.group(2),
                     matcher.group(3)
             };
+        }
+
+        return null;
+    }
+
+    private String parseExplain(String text) {
+        if (text.equalsIgnoreCase("why")
+                || text.contains("为什么")
+                || text.contains("为啥")
+                || text.contains("解释")
+                || text.contains("原因")) {
+            return "explain";
         }
 
         return null;

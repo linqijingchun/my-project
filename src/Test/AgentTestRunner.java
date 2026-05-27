@@ -4,6 +4,7 @@ class AgentTestRunner {
     public static void main(String[] args) {
         testIntentParser();
         testAgentCommandService();
+        testExplainWithoutPath();
         System.out.println("所有测试通过");
     }
 
@@ -20,6 +21,9 @@ class AgentTestRunner {
         assertEquals("update A B 4", parser.parse("将A到B的距离设为4"));
         assertEquals("remove A B", parser.parse("删除A到B的边"));
         assertEquals("show", parser.parse("显示当前拓扑"));
+        assertEquals("explain", parser.parse("why"));
+        assertEquals("explain", parser.parse("为什么"));
+        assertEquals("explain", parser.parse("解释一下"));
     }
 
     private static void testAgentCommandService() {
@@ -54,6 +58,17 @@ class AgentTestRunner {
         assertTrue(r6.isSuccess(), "标准命令查询 A 到 D 应该成功");
         assertEquals("path A D", r6.getOriginalInput());
         assertEquals("path A D", r6.getNormalizedCommand());
+        assertTrue(service.getContext().hasLastPath(), "context should remember the latest path query");
+        assertEquals("A", service.getContext().getLastSource());
+        assertEquals("D", service.getContext().getLastTarget());
+        assertEquals("path A D", service.getContext().getLastNormalizedCommand());
+
+        AgentResponse r7 = service.handle("why");
+        assertTrue(r7.isSuccess(), "why should explain the latest path query");
+        assertEquals("explain", r7.getNormalizedCommand());
+        assertContains(r7.getMessage(), "A");
+        assertContains(r7.getMessage(), "D");
+        assertContains(r7.getMessage(), "A -> B -> D");
     }
 
     private static void assertEquals(String expected, String actual) {
@@ -76,5 +91,15 @@ class AgentTestRunner {
                     "期望内容包含: " + expectedPart + "\n实际内容: " + actual
             );
         }
+    }
+
+    private static void testExplainWithoutPath() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        AgentResponse response = service.handle("why");
+
+        assertTrue(!response.isSuccess(), "why should fail when no path has been queried");
+        assertEquals("explain", response.getNormalizedCommand());
     }
 }
