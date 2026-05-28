@@ -1,8 +1,5 @@
 package Test;
 
-import java.util.List;
-import java.util.Map;
-
 class AgentCommandService {
     private final PathOptimizerAgent agent;
     private final AgentContext context;
@@ -22,51 +19,51 @@ class AgentCommandService {
             return AgentResponse.error("请输入命令");
         }
 
-        String originalInput = line;
-        String normalizedCommand = intentParser.parse(line);
-
-        String[] parts = normalizedCommand.trim().split("\\s+");
-        String cmd = parts[0].toLowerCase();
+        Intent intent = intentParser.parse(line);
         AgentResponse response;
 
         try {
-            switch (cmd) {
-                case "add":
-                    response = handleAddDirectedEdge(parts);
+            switch (intent.getType()) {
+                case ADD_DIRECTED:
+                    response = handleAddDirectedEdge(intent);
                     break;
-                case "addud":
-                    response = handleAddUndirectedEdge(parts);
+                case ADD_UNDIRECTED:
+                    response = handleAddUndirectedEdge(intent);
                     break;
-                case "path":
-                    response = handleShortestPath(parts);
+                case PATH:
+                    response = handleShortestPath(intent);
                     break;
-                case "reach":
-                    response = handleReachable(parts);
+                case ALLPATHS:
+                    response = handleAllShortestPaths(intent);
                     break;
-                case "update":
-                    response = handleUpdateWeight(parts);
+                case REACH:
+                    response = handleReachable(intent);
                     break;
-                case "remove":
-                    response = handleRemoveEdge(parts);
+                case UPDATE:
+                    response = handleUpdateWeight(intent);
                     break;
-                case "show":
-                    response = handleShowGraph(parts);
+                case REMOVE:
+                    response = handleRemoveEdge(intent);
                     break;
-                case "load":
-                    response = handleLoad(parts);
+                case SHOW:
+                    response = handleShowGraph();
                     break;
-                case "save":
-                    response = handleSave(parts);
+                case LOAD:
+                    response = handleLoad(intent);
                     break;
-                case "allpaths":
-                    response = handleAllShortestPaths(parts);
+                case SAVE:
+                    response = handleSave(intent);
                     break;
-                case "explain":
+                case EXPLAIN:
                     response = handleExplain();
                     break;
-                case "help":
+                case HELP:
                     response = handleHelp();
                     break;
+                case SUMMARY:
+                    response = handleTopologySummary();
+                    break;
+                case UNKNOWN:
                 default:
                     response = AgentResponse.error("未知命令，请重新输入");
                     break;
@@ -79,211 +76,145 @@ class AgentCommandService {
             response = AgentResponse.error("错误: " + e.toString());
         }
 
-        AgentResponse responseWithCommandInfo = response.withCommandInfo(originalInput, normalizedCommand);
-        context.rememberCommand(originalInput, normalizedCommand, responseWithCommandInfo.isSuccess());
-        return responseWithCommandInfo;
+        AgentResponse responseWithIntent = response.withIntent(intent);
+        context.rememberCommand(intent, responseWithIntent.isSuccess());
+        return responseWithIntent;
     }
 
-    private AgentResponse handleAddDirectedEdge(String[] parts) {
-        if (parts.length != 4) {
-            throw new IllegalArgumentException("用法: add from to weight");
-        }
+    // ---------- 各指令处理器 ----------
 
-        int weight = Integer.parseInt(parts[3]);
-        agent.addDirectedEdge(parts[1], parts[2], weight);
-
+    private AgentResponse handleAddDirectedEdge(Intent intent) {
+        agent.addDirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight());
         return AgentResponse.success(
-                "已添加有向边 " + parts[1] + " -> " + parts[2] + " 权重 " + weight
-        );
+                "已添加有向边 " + intent.getSource() + " -> " + intent.getTarget()
+                        + " 权重 " + intent.getWeight());
     }
 
-    private AgentResponse handleAddUndirectedEdge(String[] parts) {
-        if (parts.length != 4) {
-            throw new IllegalArgumentException("用法: addud from to weight");
-        }
-
-        int weight = Integer.parseInt(parts[3]);
-        agent.addUndirectedEdge(parts[1], parts[2], weight);
-
+    private AgentResponse handleAddUndirectedEdge(Intent intent) {
+        agent.addUndirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight());
         return AgentResponse.success(
-                "已添加无向边 " + parts[1] + " <-> " + parts[2] + " 权重 " + weight
-        );
+                "已添加无向边 " + intent.getSource() + " <-> " + intent.getTarget()
+                        + " 权重 " + intent.getWeight());
     }
 
-    private AgentResponse handleShortestPath(String[] parts) {
-        if (parts.length != 3) {
-            throw new IllegalArgumentException("用法: path src dst");
-        }
-
-        String src = parts[1];
-        String dst = parts[2];
-
-        PathOptimizerAgent.PathResult result = agent.shortestPath(src, dst);
-        context.rememberPath(src, dst, result);
+    private AgentResponse handleShortestPath(Intent intent) {
+        PathOptimizerAgent.PathResult result =
+                agent.shortestPath(intent.getSource(), intent.getTarget());
+        context.rememberPath(intent.getSource(), intent.getTarget(), result);
 
         if (result == null) {
-            return AgentResponse.error(src + " 到 " + dst + " 不可达");
+            return AgentResponse.error(
+                    intent.getSource() + " 到 " + intent.getTarget() + " 不可达");
         }
 
         String message = "最短路径: " + String.join(" -> ", result.path)
                 + "\n总代价: " + result.totalCost;
-
         return AgentResponse.successWithPath(message, result);
     }
 
-    AgentContext getContext() {
-        return context;
-    }
+    private AgentResponse handleAllShortestPaths(Intent intent) {
+        java.util.List<PathOptimizerAgent.PathResult> results =
+                agent.getAllShortestPaths(intent.getSource(), intent.getTarget());
 
-    private AgentResponse handleReachable(String[] parts) {
-        if (parts.length != 3) {
-            throw new IllegalArgumentException("用法: reach src dst");
+        if (results.isEmpty()) {
+            return AgentResponse.error(
+                    intent.getSource() + " 到 " + intent.getTarget() + " 不可达");
         }
 
-        boolean reachable = agent.isReachable(parts[1], parts[2]);
+        StringBuilder sb = new StringBuilder();
+        sb.append("共找到 ").append(results.size()).append(" 条最短路径:\n");
+        for (int i = 0; i < results.size(); i++) {
+            PathOptimizerAgent.PathResult r = results.get(i);
+            sb.append("路径").append(i + 1).append(": ")
+                    .append(String.join(" -> ", r.path))
+                    .append(" 代价: ").append(r.totalCost).append("\n");
+        }
+        return AgentResponse.successWithPaths(sb.toString(), results);
+    }
 
+    private AgentResponse handleReachable(Intent intent) {
+        boolean reachable = agent.isReachable(intent.getSource(), intent.getTarget());
+        if (reachable) {
+            return AgentResponse.success(
+                    intent.getSource() + " 到 " + intent.getTarget() + " 可达");
+        } else {
+            return AgentResponse.success(
+                    intent.getSource() + " 到 " + intent.getTarget() + " 不可达");
+        }
+    }
+
+    private AgentResponse handleUpdateWeight(Intent intent) {
+        agent.updateWeight(intent.getSource(), intent.getTarget(), intent.getWeight());
         return AgentResponse.success(
-                parts[1] + " 到 " + parts[2] + (reachable ? " 可达" : " 不可达")
-        );
+                "已将 " + intent.getSource() + " -> " + intent.getTarget()
+                        + " 权重修改为 " + intent.getWeight());
     }
 
-    private AgentResponse handleUpdateWeight(String[] parts) {
-        if (parts.length != 4) {
-            throw new IllegalArgumentException("用法: update from to newWeight");
-        }
-
-        int weight = Integer.parseInt(parts[3]);
-        agent.updateWeight(parts[1], parts[2], weight);
-
+    private AgentResponse handleRemoveEdge(Intent intent) {
+        agent.removeEdge(intent.getSource(), intent.getTarget());
         return AgentResponse.success(
-                "已更新边 " + parts[1] + " -> " + parts[2] + " 权重为 " + weight
-        );
+                "已删除边 " + intent.getSource() + " -> " + intent.getTarget());
     }
 
-    private AgentResponse handleRemoveEdge(String[] parts) {
-        if (parts.length != 3) {
-            throw new IllegalArgumentException("用法: remove from to");
-        }
-
-        agent.removeEdge(parts[1], parts[2]);
-
-        return AgentResponse.success(
-                "已删除边 " + parts[1] + " -> " + parts[2]
-        );
-    }
-
-    private AgentResponse handleShowGraph(String[] parts) {
-        if (parts.length != 1) {
-            throw new IllegalArgumentException("用法: show");
-        }
-
-        Map<String, List<Edge>> graph = agent.getGraph();
-
+    private AgentResponse handleShowGraph() {
+        StringBuilder sb = new StringBuilder();
+        java.util.Map<String, java.util.List<Edge>> graph = agent.getGraph();
         if (graph.isEmpty()) {
             return AgentResponse.success("图为空");
         }
-
-        StringBuilder sb = new StringBuilder();
-
-        for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
+        for (java.util.Map.Entry<String, java.util.List<Edge>> entry : graph.entrySet()) {
             String node = entry.getKey();
-            List<Edge> edges = entry.getValue();
-
-            sb.append(node).append(" --> ");
-
+            java.util.List<Edge> edges = entry.getValue();
             if (edges.isEmpty()) {
-                sb.append("(无出边)");
+                sb.append(node).append(" --> (无出边)\n");
             } else {
-                for (Edge edge : edges) {
-                    sb.append(edge).append(" ");
+                sb.append(node).append(" --> ");
+                for (Edge e : edges) {
+                    sb.append(e).append(" ");
                 }
+                sb.append("\n");
             }
-
-            sb.append("\n");
         }
-
         return AgentResponse.success(sb.toString());
     }
 
-    private AgentResponse handleLoad(String[] parts) throws Exception {
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("用法: load filename");
+    private AgentResponse handleLoad(Intent intent) {
+        try {
+            agent.loadFromFile(intent.getFilename());
+            return AgentResponse.success("已从 " + intent.getFilename() + " 加载拓扑");
+        } catch (java.io.IOException e) {
+            return AgentResponse.error("加载失败: " + e.getMessage());
         }
-
-        agent.loadFromFile(parts[1]);
-
-        return AgentResponse.success("已从 " + parts[1] + " 加载拓扑");
     }
 
-    private AgentResponse handleSave(String[] parts) throws Exception {
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("用法: save filename");
+    private AgentResponse handleSave(Intent intent) {
+        try {
+            agent.saveToFile(intent.getFilename());
+            return AgentResponse.success("已保存拓扑到 " + intent.getFilename());
+        } catch (java.io.IOException e) {
+            return AgentResponse.error("保存失败: " + e.getMessage());
         }
-
-        agent.saveToFile(parts[1]);
-
-        return AgentResponse.success("已保存到 " + parts[1]);
-    }
-
-    private AgentResponse handleAllShortestPaths(String[] parts) {
-        if (parts.length != 3) {
-            throw new IllegalArgumentException("用法: allpaths src dst");
-        }
-
-        String src = parts[1];
-        String dst = parts[2];
-
-        List<PathOptimizerAgent.PathResult> results = agent.getAllShortestPaths(src, dst);
-
-        if (results.isEmpty()) {
-            return AgentResponse.error(src + " 到 " + dst + " 不可达");
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("找到 ")
-                .append(results.size())
-                .append(" 条最短路径（总代价 ")
-                .append(results.get(0).totalCost)
-                .append("）：\n");
-
-        for (int i = 0; i < results.size(); i++) {
-            sb.append(i + 1)
-                    .append(": ")
-                    .append(String.join(" -> ", results.get(i).path))
-                    .append("\n");
-        }
-
-        return AgentResponse.successWithPaths(sb.toString(), results);
     }
 
     private AgentResponse handleExplain() {
         if (!context.hasLastPath()) {
-            return AgentResponse.error("目前还没有可解释的路径查询，请先执行 path <src> <dst>。");
+            return AgentResponse.error(
+                    "目前还没有可解释的路径查询，请先执行 path <src> <dst>。");
         }
 
         PathOptimizerAgent.PathResult result = context.getLastPathResult();
-
         String message = "最近一次查询是 "
-                + context.getLastSource()
-                + " 到 "
-                + context.getLastTarget()
-                + "。\n最短路径为 "
-                + String.join(" -> ", result.path)
-                + "。\n总代价为 "
-                + result.totalCost
-                + "。\n这是当前图中从 "
-                + context.getLastSource()
-                + " 到 "
-                + context.getLastTarget()
-                + " 的最小总代价路径。";
-
+                + context.getLastSource() + " 到 " + context.getLastTarget() + "。\n"
+                + "最短路径为 " + String.join(" -> ", result.path) + "。\n"
+                + "总代价为 " + result.totalCost + "。\n"
+                + "这是当前图中从 " + context.getLastSource()
+                + " 到 " + context.getLastTarget() + " 的最小总代价路径。";
         return AgentResponse.successWithPath(message, result);
     }
 
     private AgentResponse handleHelp() {
         return AgentResponse.success(
-                "网络路径寻优智能体使用指南\n"
-                        + "\n"
+                "网络路径寻优智能体使用指南\n\n"
                         + "一、标准命令\n"
                         + "  add <from> <to> <weight>        添加有向边\n"
                         + "  addud <from> <to> <weight>      添加无向边\n"
@@ -296,24 +227,43 @@ class AgentCommandService {
                         + "  load <filename>                 从文件加载拓扑\n"
                         + "  save <filename>                 保存拓扑到文件\n"
                         + "  explain                         解释最近一次路径查询\n"
-                        + "  exit                            退出程序\n"
-                        + "\n"
+                        + "  summary                         输出拓扑摘要\n"
+                        + "  topology                        输出拓扑摘要\n"
+                        + "  exit                            退出程序\n\n"
                         + "二、自然语言示例\n"
                         + "  添加B到D长度为1\n"
-                        + "  添加无向边A到B长度为3\n"
                         + "  帮我查询A到D的最短路径\n"
-                        + "  查询A到D的所有最短路径\n"
-                        + "  A到D能不能到\n"
-                        + "  把A到B的权重改成4\n"
-                        + "  删除A到B的边\n"
-                        + "  显示当前拓扑\n"
                         + "  为什么\n"
-                        + "  解释一下\n"
-                        + "\n"
+                        + "  显示网络摘要\n\n"
                         + "三、说明\n"
-                        + "  节点名建议使用字母、数字或下划线，例如 A、B、Router1。\n"
-                        + "  权重必须是正整数。\n"
-                        + "  如果自然语言无法识别，请使用标准命令。"
+                        + "  节点名建议使用字母、数字或下划线。\n"
+                        + "  权重必须是正整数。"
         );
+    }
+
+    private AgentResponse handleTopologySummary() {
+        TopologySummary summary = agent.summarizeTopology();
+        StringBuilder sb = new StringBuilder();
+        sb.append("拓扑摘要:\n");
+        sb.append("节点数: ").append(summary.getNodeCount()).append("\n");
+        sb.append("边数: ").append(summary.getEdgeCount()).append("\n");
+        sb.append("孤立节点数: ").append(summary.getIsolatedNodes().size()).append("\n");
+        if (summary.getIsolatedNodes().isEmpty()) {
+            sb.append("孤立节点: 无\n");
+        } else {
+            sb.append("孤立节点: ")
+                    .append(String.join(", ", summary.getIsolatedNodes())).append("\n");
+        }
+        if (summary.getNoOutgoingNodes().isEmpty()) {
+            sb.append("无出边节点: 无");
+        } else {
+            sb.append("无出边节点: ")
+                    .append(String.join(", ", summary.getNoOutgoingNodes()));
+        }
+        return AgentResponse.success(sb.toString());
+    }
+
+    AgentContext getContext() {
+        return context;
     }
 }

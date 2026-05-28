@@ -264,4 +264,49 @@ class PathOptimizerAgent {
         }
         current.remove(current.size() - 1);
     }
+
+    public TopologySummary summarizeTopology() {
+        int edgeCount = 0;
+        Map<String, Integer> inDegree = new HashMap<>();
+
+        for (String node : graph.keySet()) {
+            inDegree.put(node, 0);
+        }
+
+        for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
+            List<Edge> edges = entry.getValue();
+            edgeCount += edges.size();
+
+            for (Edge edge : edges) {
+                inDegree.put(edge.target, inDegree.getOrDefault(edge.target, 0) + 1);
+            }
+        }
+
+        List<String> isolatedNodes = new ArrayList<>();
+        List<String> noOutgoingNodes = new ArrayList<>();
+
+        for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
+            String node = entry.getKey();
+            boolean noIncoming = inDegree.getOrDefault(node, 0) == 0;
+            boolean noOutgoing = entry.getValue().isEmpty();
+
+            if (noIncoming && noOutgoing) {
+                isolatedNodes.add(node);
+            }
+
+            if (noOutgoing) {
+                noOutgoingNodes.add(node);
+            }
+        }
+
+        Collections.sort(isolatedNodes);
+        Collections.sort(noOutgoingNodes);
+
+        return new TopologySummary(
+                graph.size(),
+                edgeCount,
+                isolatedNodes,
+                noOutgoingNodes
+        );
+    }
 }

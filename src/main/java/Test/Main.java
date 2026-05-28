@@ -45,6 +45,8 @@ public class Main {
         System.out.println("  allpaths <src> <dst>            - 查询所有最短路径");
         System.out.println("  explain                         - 解释最近一次路径查询");
         System.out.println("  help                            - 查看使用指南");
+        System.out.println("  summary                         - 输出拓扑摘要");
+        System.out.println("  topology                        - 输出拓扑摘要");
         System.out.println("  exit                            - 退出程序");
     }
 }

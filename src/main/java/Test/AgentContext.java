@@ -1,20 +1,19 @@
 package Test;
 
 class AgentContext {
-    private String lastOriginalInput;
-    private String lastNormalizedCommand;
+    private Intent lastIntent;
     private String lastSource;
     private String lastTarget;
     private PathOptimizerAgent.PathResult lastPathResult;
     private boolean lastSuccess;
 
-    void rememberCommand(String originalInput, String normalizedCommand, boolean success) {
-        this.lastOriginalInput = originalInput;
-        this.lastNormalizedCommand = normalizedCommand;
+    void rememberCommand(Intent intent, boolean success) {
+        this.lastIntent = intent;
         this.lastSuccess = success;
     }
 
-    void rememberPath(String source, String target, PathOptimizerAgent.PathResult pathResult) {
+    void rememberPath(String source, String target,
+                      PathOptimizerAgent.PathResult pathResult) {
         this.lastSource = source;
         this.lastTarget = target;
         this.lastPathResult = pathResult;
@@ -24,12 +23,16 @@ class AgentContext {
         return lastPathResult != null;
     }
 
+    Intent getLastIntent() {
+        return lastIntent;
+    }
+
     String getLastOriginalInput() {
-        return lastOriginalInput;
+        return lastIntent != null ? lastIntent.getRawInput() : null;
     }
 
     String getLastNormalizedCommand() {
-        return lastNormalizedCommand;
+        return lastIntent != null ? lastIntent.toNormalizedCommand() : null;
     }
 
     String getLastSource() {
