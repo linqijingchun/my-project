@@ -36,47 +36,67 @@
 
 ```text
 netTest
-├── NetTest.iml
+├── pom.xml
 ├── README.md
 └── src
-    └── Test
-        ├── AgentCommandService.java
-        ├── AgentContext.java
-        ├── AgentResponse.java
-        ├── AgentTestRunner.java
-        ├── Edge.java
-        ├── IntentParser.java
-        ├── Main.java
-        ├── NetworkPathGUI.java
-        ├── NodeDist.java
-        └── PathOptimizerAgent.java
+    ├── main
+    │   └── java
+    │       └── Test
+    │           ├── AgentCommandService.java
+    │           ├── AgentContext.java
+    │           ├── AgentResponse.java
+    │           ├── Edge.java
+    │           ├── IntentParser.java
+    │           ├── Main.java
+    │           ├── NetworkPathGUI.java
+    │           ├── NodeDist.java
+    │           └── PathOptimizerAgent.java
+    └── test
+        └── java
+            └── Test
+                └── AgentTest.java
 ```
 
 ## 环境要求
 
 - JDK 8 或更高版本
+- Maven 3.8 或更高版本
 - 推荐使用 IntelliJ IDEA 打开项目
 
-当前项目没有使用 Maven 或 Gradle，直接通过 `javac` 和 `java` 即可编译运行。
+当前项目已经迁移为 Maven 标准工程，推荐通过 Maven 编译、测试和运行。
 
-## 编译方式
+## 编译与测试
 
-如果本机运行环境是 JDK 8，可以使用：
+运行全部 JUnit 测试：
 
 ```powershell
-javac -encoding UTF-8 -d out src\Test\*.java
+mvn test
 ```
 
-如果编译器版本高于运行时版本，例如使用 JDK 21 编译、JDK 8 运行，建议指定 Java 8 目标版本：
+从零清理并测试：
 
 ```powershell
-javac --release 8 -encoding UTF-8 -d out src\Test\*.java
+mvn clean test
+```
+
+打包：
+
+```powershell
+mvn package
 ```
 
 ## 运行命令行版本
 
+先编译：
+
 ```powershell
-java -cp out Test.Main
+mvn package
+```
+
+再运行：
+
+```powershell
+java -cp target\classes Test.Main
 ```
 
 启动后可以输入命令管理网络拓扑：
@@ -128,7 +148,7 @@ A到D能不能到
 ## 运行图形界面版本
 
 ```powershell
-java -cp out Test.NetworkPathGUI
+java -cp target\classes Test.NetworkPathGUI
 ```
 
 图形界面提供：
@@ -196,10 +216,12 @@ AgentResponse
 
 ## 当前版本更新
 
+- 项目迁移为 Maven 标准目录结构
+- 引入 JUnit 5 测试框架
+- 新增 `AgentTest`，覆盖自然语言解析、命令调度、上下文记忆和解释能力
 - 新增 `AgentContext` 上下文记忆对象
 - 新增 `explain` 命令，用于解释最近一次最短路径查询
 - 支持自然语言追问，例如 `why`、`为什么`、`解释一下`
-- 扩展 `AgentTestRunner`，增加上下文记忆和解释能力测试
 - 明确项目方向为网络拓扑分析与路径优化决策智能体
 
 ## 1.1 版本更新
@@ -228,7 +250,7 @@ AgentResponse
 
 ### 第一阶段：稳定当前智能体核心
 
-- 将手写测试逐步迁移为 JUnit 测试
+- 继续完善 JUnit 测试覆盖
 - 增加核心算法测试，包括不可达、重复边、无效权重、多条最短路径和文件加载异常
 - 优化错误提示，让自然语言无法识别时给出更明确的修正建议
 - 统一命令行、GUI 和未来 API 的调用入口，优先复用 `AgentCommandService`
@@ -266,9 +288,8 @@ AgentResponse
 
 建议近期按以下顺序推进：
 
-1. 引入 JUnit 测试框架，替换当前 `AgentTestRunner`
-2. 为 `PathOptimizerAgent` 补充核心算法测试
-3. 抽象 `Intent` 类，让自然语言解析结果不再只依赖字符串命令
-4. 增加 `topology` 或 `summary` 命令，输出当前拓扑摘要
-5. 增加 `analyze` 命令，初步分析孤立节点、不可达节点和关键节点
-6. 让 GUI 调用 `AgentCommandService`，逐步统一命令行和图形界面的智能体入口
+1. 为 `PathOptimizerAgent` 补充核心算法测试
+2. 抽象 `Intent` 类，让自然语言解析结果不再只依赖字符串命令
+3. 增加 `topology` 或 `summary` 命令，输出当前拓扑摘要
+4. 增加 `analyze` 命令，初步分析孤立节点、不可达节点和关键节点
+5. 让 GUI 调用 `AgentCommandService`，逐步统一命令行和图形界面的智能体入口
