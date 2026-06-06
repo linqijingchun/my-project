@@ -63,14 +63,22 @@ class IntentParser {
         switch (cmd) {
             case "add":
                 if (parts.length == 4) {
-                    return Intent.addDirected(text, parts[1], parts[2],
-                            Integer.parseInt(parts[3]));
+                    try {
+                        return Intent.addDirected(text, parts[1], parts[2],
+                                Integer.parseInt(parts[3]));
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
                 }
                 break;
             case "addud":
                 if (parts.length == 4) {
-                    return Intent.addUndirected(text, parts[1], parts[2],
-                            Integer.parseInt(parts[3]));
+                    try {
+                        return Intent.addUndirected(text, parts[1], parts[2],
+                                Integer.parseInt(parts[3]));
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
                 }
                 break;
             case "path":
@@ -90,8 +98,12 @@ class IntentParser {
                 break;
             case "update":
                 if (parts.length == 4) {
-                    return Intent.update(text, parts[1], parts[2],
-                            Integer.parseInt(parts[3]));
+                    try {
+                        return Intent.update(text, parts[1], parts[2],
+                                Integer.parseInt(parts[3]));
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
                 }
                 break;
             case "remove":

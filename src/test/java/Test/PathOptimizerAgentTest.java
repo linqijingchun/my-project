@@ -119,4 +119,32 @@ class PathOptimizerAgentTest {
         assertTrue(summary.getIsolatedNodes().isEmpty());
         assertEquals(java.util.Collections.singletonList("D"), summary.getNoOutgoingNodes());
     }
+
+    @Test
+    void addDirectedEdgeShouldRejectDuplicateEdge() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+
+        agent.addDirectedEdge("A", "B", 5);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.addDirectedEdge("A", "B", 3)
+        );
+
+        assertTrue(exception.getMessage().contains("边已存在"));
+    }
+
+    @Test
+    void addUndirectedEdgeShouldRejectDuplicateEdge() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+
+        agent.addUndirectedEdge("A", "B", 5);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> agent.addUndirectedEdge("A", "B", 3)
+        );
+
+        assertTrue(exception.getMessage().contains("边已存在"));
+    }
 }

@@ -38,6 +38,12 @@ class PathOptimizerAgent {
         validateWeight(weight);
         ensureNode(from);
         ensureNode(to);
+        for (Edge e : graph.get(from)) {
+            if (e.target.equals(to)) {
+                throw new IllegalArgumentException(
+                        "边已存在: " + from + " -> " + to + " (当前权重 " + e.weight + ")，如需修改请使用 update 命令");
+            }
+        }
         graph.get(from).add(new Edge(to, weight));
     }
 
