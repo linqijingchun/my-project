@@ -63,6 +63,12 @@ class AgentCommandService {
                 case SUMMARY:
                     response = handleTopologySummary();
                     break;
+                case ANALYZE:
+                    response = handleAnalyze();
+                    break;
+                case CONSTRAIN:
+                    response = handleConstrain(intent);
+                    break;
                 case UNKNOWN:
                 default:
                     response = AgentResponse.error("未知命令，请重新输入");
@@ -229,16 +235,72 @@ class AgentCommandService {
                         + "  explain                         解释最近一次路径查询\n"
                         + "  summary                         输出拓扑摘要\n"
                         + "  topology                        输出拓扑摘要\n"
+                        + "  analyze                         分析关键节点和瓶颈链路\n"
+                        + "  constrain path <src> <dst>      约束路径查询\n"
+                        + "    [via <n1,n2>] [avoid <n3>] [hops <N>]\n"
                         + "  exit                            退出程序\n\n"
                         + "二、自然语言示例\n"
                         + "  添加B到D长度为1\n"
                         + "  帮我查询A到D的最短路径\n"
                         + "  为什么\n"
-                        + "  显示网络摘要\n\n"
+                        + "  显示网络摘要\n"
+                        + "  分析关键节点\n"
+                        + "  从A到D经过B的最短路径\n"
+                        + "  从A到D避开C的路径\n"
+                        + "  从A到D跳数不超过3的路径\n\n"
                         + "三、说明\n"
                         + "  节点名建议使用字母、数字或下划线。\n"
-                        + "  权重必须是正整数。"
+                        + "  权重必须是正整数。\n"
+                        + "  via 节点最多 3 个，多个用逗号分隔。"
         );
+    }
+
+    private AgentResponse handleAnalyze() {
+        PathOptimizerAgent.TopologyAnalysisResult result = agent.analyzeTopology();
+        if (result.criticalNodes.isEmpty()) {
+            return AgentResponse.success("图为空，无法分析");
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("拓扑分析结果:\n\n");
+        sb.append("关键节点（最短路径经过次数最多）:\n");
+        for (int i = 0; i < result.criticalNodes.size(); i++) {
+            sb.append("  ").append(i + 1).append(". ").append(result.criticalNodes.get(i)).append("\n");
+        }
+        sb.append("\n瓶颈链路（权重×经过次数最高）:\n");
+        if (result.bottleneckEdges.isEmpty()) {
+            sb.append("  无\n");
+        } else {
+            for (int i = 0; i < result.bottleneckEdges.size(); i++) {
+                sb.append("  ").append(i + 1).append(". ").append(result.bottleneckEdges.get(i)).append("\n");
+            }
+        }
+        return AgentResponse.success(sb.toString());
+    }
+
+    private AgentResponse handleConstrain(Intent intent) {
+        PathOptimizerAgent.PathResult result = agent.constrainedPath(
+                intent.getSource(), intent.getTarget(),
+                intent.getViaNodes(), intent.getAvoidNodes(), intent.getMaxHops());
+
+        if (result == null) {
+            return AgentResponse.error(
+                    intent.getSource() + " 到 " + intent.getTarget() + " 在约束条件下不可达");
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("约束最短路径: ").append(String.join(" -> ", result.path)).append("\n");
+        sb.append("总代价: ").append(result.totalCost);
+        if (!intent.getViaNodes().isEmpty()) {
+            sb.append("\n必经节点: ").append(String.join(", ", intent.getViaNodes()));
+        }
+        if (!intent.getAvoidNodes().isEmpty()) {
+            sb.append("\n避开节点: ").append(String.join(", ", intent.getAvoidNodes()));
+        }
+        if (intent.getMaxHops() != null) {
+            sb.append("\n最大跳数: ").append(intent.getMaxHops());
+            sb.append(" (实际跳数: ").append(result.path.size() - 1).append(")");
+        }
+        return AgentResponse.successWithPath(sb.toString(), result);
     }
 
     private AgentResponse handleTopologySummary() {

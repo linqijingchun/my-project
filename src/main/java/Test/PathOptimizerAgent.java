@@ -1,8 +1,8 @@
 package Test;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -165,7 +165,7 @@ class PathOptimizerAgent {
         // 清空现有图
         graph.clear();
         Path path = Paths.get(filename);
-        List<String> lines = Files.readAllLines(path);
+        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
         for (String line : lines) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
@@ -195,7 +195,7 @@ class PathOptimizerAgent {
      * 将当前拓扑保存到文件（有向边的格式）
      */
     public void saveToFile(String filename) throws IOException {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(filename))) {
+        try (PrintWriter writer = new PrintWriter(Files.newBufferedWriter(Paths.get(filename), StandardCharsets.UTF_8))) {
             writer.println("# 有向图拓扑文件，格式: from to weight");
             for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
                 String from = entry.getKey();
@@ -269,6 +269,429 @@ class PathOptimizerAgent {
             backtrack(src, prev, prevList, current, result);
         }
         current.remove(current.size() - 1);
+    }
+
+    // ---------- 拓扑分析：关键节点 + 瓶颈链路 ----------
+    public TopologyAnalysisResult analyzeTopology() {
+        if (graph.isEmpty()) {
+            return new TopologyAnalysisResult(Collections.emptyList(), Collections.emptyList());
+        }
+
+        // 收集所有节点对的最短路径
+        List<String> nodes = new ArrayList<>(graph.keySet());
+        Map<String, Integer> nodePassCount = new HashMap<>();
+        Map<String, Integer> edgePassCount = new HashMap<>();
+        for (String node : nodes) {
+            nodePassCount.put(node, 0);
+        }
+
+        for (int i = 0; i < nodes.size(); i++) {
+            for (int j = 0; j < nodes.size(); j++) {
+                if (i == j) continue;
+                PathResult result = dijkstra(nodes.get(i), nodes.get(j));
+                if (result == null) continue;
+                // 统计路径上的节点
+                for (String n : result.path) {
+                    nodePassCount.put(n, nodePassCount.get(n) + 1);
+                }
+                // 统计路径上的边
+                for (int k = 0; k < result.path.size() - 1; k++) {
+                    String key = result.path.get(k) + "->" + result.path.get(k + 1);
+                    edgePassCount.put(key, edgePassCount.getOrDefault(key, 0) + 1);
+                }
+            }
+        }
+
+        // 关键节点：按经过次数排序，取前3
+        List<String> criticalNodes = new ArrayList<>(nodePassCount.keySet());
+        criticalNodes.sort((a, b) -> nodePassCount.get(b) - nodePassCount.get(a));
+        List<String> topCritical = new ArrayList<>(criticalNodes.subList(0, Math.min(3, criticalNodes.size())));
+
+        // 瓶颈链路：取权重最高且经过次数较多的前3条边
+        List<String> bottleneckEdges = new ArrayList<>();
+        List<int[]> bottleneckInfo = new ArrayList<>(); // [weight, passCount]
+        for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
+            String from = entry.getKey();
+            for (Edge e : entry.getValue()) {
+                String key = from + "->" + e.target;
+                int pass = edgePassCount.getOrDefault(key, 0);
+                bottleneckEdges.add(key);
+                bottleneckInfo.add(new int[]{e.weight, pass});
+            }
+        }
+        // 按 weight * passCount 综合排序
+        List<Integer> indices = new ArrayList<>();
+        for (int i = 0; i < bottleneckEdges.size(); i++) indices.add(i);
+        indices.sort((a, b) -> {
+            int scoreA = bottleneckInfo.get(a)[0] * bottleneckInfo.get(a)[1];
+            int scoreB = bottleneckInfo.get(b)[0] * bottleneckInfo.get(b)[1];
+            return scoreB - scoreA;
+        });
+        List<String> topBottleneck = new ArrayList<>();
+        for (int i = 0; i < Math.min(3, indices.size()); i++) {
+            int idx = indices.get(i);
+            String edge = bottleneckEdges.get(idx);
+            int weight = bottleneckInfo.get(idx)[0];
+            int pass = bottleneckInfo.get(idx)[1];
+            topBottleneck.add(edge + " (权重" + weight + ", 经过" + pass + "次)");
+        }
+
+        return new TopologyAnalysisResult(topCritical, topBottleneck);
+    }
+
+    // ---------- 约束路径查询 ----------
+
+    /**
+     * 带约束的路径查询
+     * @param src 源节点
+     * @param dst 目标节点
+     * @param viaNodes 必经节点列表（最多3个）
+     * @param avoidNodes 避开节点列表
+     * @param maxHops 最大跳数限制
+     * @return 最优约束路径，不可达返回 null
+     */
+    public PathResult constrainedPath(String src, String dst,
+                                       List<String> viaNodes, List<String> avoidNodes,
+                                       Integer maxHops) {
+        if (!graph.containsKey(src) || !graph.containsKey(dst)) {
+            return null;
+        }
+
+        // 检查 via/avoid 节点是否存在
+        for (String node : viaNodes) {
+            if (!graph.containsKey(node)) return null;
+        }
+        for (String node : avoidNodes) {
+            if (!graph.containsKey(node)) return null;
+        }
+        // src/dst 不能在 avoid 列表中
+        if (avoidNodes.contains(src) || avoidNodes.contains(dst)) return null;
+        // via 节点不能和 avoid 节点重叠
+        for (String v : viaNodes) {
+            if (avoidNodes.contains(v)) return null;
+        }
+
+        // 纯跳数限制（无 via/avoid）
+        if (viaNodes.isEmpty() && avoidNodes.isEmpty() && maxHops != null) {
+            return dijkstraWithHopLimit(src, dst, maxHops);
+        }
+
+        // 纯避开节点（无 via，无 hops）
+        if (viaNodes.isEmpty() && maxHops == null && !avoidNodes.isEmpty()) {
+            return dijkstraWithAvoid(src, dst, avoidNodes);
+        }
+
+        // 纯必经节点（无 avoid，无 hops）或同时有 via + avoid/hops
+        if (!viaNodes.isEmpty()) {
+            return dijkstraWithVia(src, dst, viaNodes, avoidNodes, maxHops);
+        }
+
+        // 有 avoid + hops 组合
+        if (!avoidNodes.isEmpty() && maxHops != null) {
+            // 先避开节点，再限制跳数
+            PathResult result = dijkstraWithAvoidAndHops(src, dst, avoidNodes, maxHops);
+            return result;
+        }
+
+        return null;
+    }
+
+    private PathResult dijkstraWithHopLimit(String src, String dst, int maxHops) {
+        // 状态空间 Dijkstra：dist[node][hops]
+        Map<String, int[]> dist = new HashMap<>();
+        Map<String, String[]> prev = new HashMap<>();
+        for (String node : graph.keySet()) {
+            dist.put(node, new int[maxHops + 1]);
+            prev.put(node, new String[maxHops + 1]);
+            for (int h = 0; h <= maxHops; h++) {
+                dist.get(node)[h] = Integer.MAX_VALUE;
+            }
+        }
+        dist.get(src)[0] = 0;
+
+        // State: (node, hops, cost)
+        PriorityQueue<int[]> pq = new PriorityQueue<>((a, b) -> a[2] - b[2]);
+        pq.offer(new int[]{nodeToIndex(src), 0, 0});
+
+        List<String> nodeList = new ArrayList<>(graph.keySet());
+        Map<String, Integer> nodeIndex = new HashMap<>();
+        for (int i = 0; i < nodeList.size(); i++) nodeIndex.put(nodeList.get(i), i);
+
+        // 重新用字符串优先队列
+        // State: node, hops, cost
+        List<String> stateNodes = new ArrayList<>();
+        List<Integer> stateHops = new ArrayList<>();
+
+        // 简化：用 map 记录最优
+        Map<String, Integer> bestDist = new HashMap<>(); // "node|hops" -> cost
+        Map<String, String> bestPrev = new HashMap<>();  // "node|hops" -> prevNode
+        Map<String, Integer> bestPrevHops = new HashMap<>();
+
+        String startKey = src + "|0";
+        bestDist.put(startKey, 0);
+
+        // 优先队列元素: [cost, nodeIndex, hops]
+        List<int[]> queue = new ArrayList<>();
+        queue.add(new int[]{0, 0, 0}); // cost, dummy, hops
+        List<String> queueNode = new ArrayList<>();
+        queueNode.add(src);
+
+        // 用简单列表+排序模拟优先队列
+        List<Integer> costs = new ArrayList<>();
+        List<String> nodes = new ArrayList<>();
+        List<Integer> hopsList = new ArrayList<>();
+        costs.add(0);
+        nodes.add(src);
+        hopsList.add(0);
+
+        while (!costs.isEmpty()) {
+            // 找最小
+            int minIdx = 0;
+            for (int i = 1; i < costs.size(); i++) {
+                if (costs.get(i) < costs.get(minIdx)) minIdx = i;
+            }
+            int d = costs.get(minIdx);
+            String u = nodes.get(minIdx);
+            int h = hopsList.get(minIdx);
+            costs.remove(minIdx);
+            nodes.remove(minIdx);
+            hopsList.remove(minIdx);
+
+            String uKey = u + "|" + h;
+            if (d != bestDist.getOrDefault(uKey, Integer.MAX_VALUE)) continue;
+            if (u.equals(dst)) {
+                // 回溯路径
+                return reconstructHopPath(src, dst, h, bestPrev, bestPrevHops);
+            }
+
+            if (h >= maxHops) continue;
+
+            for (Edge e : graph.get(u)) {
+                String v = e.target;
+                int newDist = d + e.weight;
+                int newHops = h + 1;
+                String vKey = v + "|" + newHops;
+                if (newDist < bestDist.getOrDefault(vKey, Integer.MAX_VALUE)) {
+                    bestDist.put(vKey, newDist);
+                    bestPrev.put(vKey, u);
+                    bestPrevHops.put(vKey, h);
+                    costs.add(newDist);
+                    nodes.add(v);
+                    hopsList.add(newHops);
+                }
+            }
+        }
+        return null;
+    }
+
+    private PathResult reconstructHopPath(String src, String dst, int hops,
+                                           Map<String, String> bestPrev,
+                                           Map<String, Integer> bestPrevHops) {
+        List<String> path = new ArrayList<>();
+        String node = dst;
+        int h = hops;
+        while (node != null) {
+            path.add(node);
+            String key = node + "|" + h;
+            String prevNode = bestPrev.get(key);
+            Integer prevHop = bestPrevHops.get(key);
+            if (prevNode == null) break;
+            node = prevNode;
+            h = prevHop;
+        }
+        Collections.reverse(path);
+        // 计算总代价
+        int totalCost = 0;
+        for (int i = 0; i < path.size() - 1; i++) {
+            for (Edge e : graph.get(path.get(i))) {
+                if (e.target.equals(path.get(i + 1))) {
+                    totalCost += e.weight;
+                    break;
+                }
+            }
+        }
+        return new PathResult(path, totalCost);
+    }
+
+    private int nodeToIndex(String node) {
+        return 0; // placeholder, not used in final impl
+    }
+
+    private PathResult dijkstraWithAvoid(String src, String dst, List<String> avoidNodes) {
+        // 临时移除 avoid 节点
+        Map<String, List<Edge>> removed = new HashMap<>();
+        for (String node : avoidNodes) {
+            if (graph.containsKey(node)) {
+                removed.put(node, new ArrayList<>(graph.get(node)));
+                graph.remove(node);
+            }
+        }
+        // 移除指向 avoid 节点的边
+        Map<String, List<Edge>> removedIncoming = new HashMap<>();
+        for (String node : avoidNodes) {
+            for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
+                String from = entry.getKey();
+                List<Edge> edges = entry.getValue();
+                List<Edge> toRemove = new ArrayList<>();
+                for (Edge e : edges) {
+                    if (e.target.equals(node)) toRemove.add(e);
+                }
+                if (!toRemove.isEmpty()) {
+                    removedIncoming.computeIfAbsent(from, k -> new ArrayList<>()).addAll(toRemove);
+                    edges.removeAll(toRemove);
+                }
+            }
+        }
+
+        PathResult result = dijkstra(src, dst);
+
+        // 恢复图
+        for (Map.Entry<String, List<Edge>> entry : removed.entrySet()) {
+            graph.put(entry.getKey(), entry.getValue());
+        }
+        for (Map.Entry<String, List<Edge>> entry : removedIncoming.entrySet()) {
+            graph.get(entry.getKey()).addAll(entry.getValue());
+        }
+
+        return result;
+    }
+
+    private PathResult dijkstraWithVia(String src, String dst,
+                                        List<String> viaNodes, List<String> avoidNodes,
+                                        Integer maxHops) {
+        // 尝试所有 via 节点排列，找总代价最小的
+        List<List<String>> permutations = permute(viaNodes);
+        PathResult best = null;
+
+        for (List<String> order : permutations) {
+            // 构建完整路径: src -> via[0] -> via[1] -> ... -> dst
+            List<String> waypoints = new ArrayList<>();
+            waypoints.add(src);
+            waypoints.addAll(order);
+            waypoints.add(dst);
+
+            boolean valid = true;
+            List<String> fullPath = new ArrayList<>();
+            int totalCost = 0;
+
+            for (int i = 0; i < waypoints.size() - 1; i++) {
+                PathResult segment;
+                if (!avoidNodes.isEmpty()) {
+                    segment = dijkstraWithAvoid(waypoints.get(i), waypoints.get(i + 1), avoidNodes);
+                } else if (maxHops != null) {
+                    // 每段分配合理的跳数上限
+                    int segHops = Math.max(maxHops / (waypoints.size() - 1), 1);
+                    segment = dijkstraWithHopLimit(waypoints.get(i), waypoints.get(i + 1), segHops);
+                } else {
+                    segment = dijkstra(waypoints.get(i), waypoints.get(i + 1));
+                }
+                if (segment == null) {
+                    valid = false;
+                    break;
+                }
+                // 拼接路径（去掉重复节点）
+                if (i == 0) {
+                    fullPath.addAll(segment.path);
+                } else {
+                    fullPath.addAll(segment.path.subList(1, segment.path.size()));
+                }
+                totalCost += segment.totalCost;
+            }
+
+            if (valid && (best == null || totalCost < best.totalCost)) {
+                best = new PathResult(fullPath, totalCost);
+            }
+        }
+
+        // 如果有 maxHops 约束，验证总跳数
+        if (best != null && maxHops != null && best.path.size() - 1 > maxHops) {
+            // 尝试全局跳数限制
+            PathResult globalResult = dijkstraWithHopLimitAndAvoid(src, dst, avoidNodes, maxHops);
+            if (globalResult != null) return globalResult;
+            return null;
+        }
+
+        return best;
+    }
+
+    private PathResult dijkstraWithHopLimitAndAvoid(String src, String dst,
+                                                     List<String> avoidNodes, int maxHops) {
+        // 先避开节点，再限制跳数
+        Map<String, List<Edge>> removed = new HashMap<>();
+        for (String node : avoidNodes) {
+            if (graph.containsKey(node)) {
+                removed.put(node, new ArrayList<>(graph.get(node)));
+                graph.remove(node);
+            }
+        }
+        Map<String, List<Edge>> removedIncoming = new HashMap<>();
+        for (String node : avoidNodes) {
+            for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
+                String from = entry.getKey();
+                List<Edge> edges = entry.getValue();
+                List<Edge> toRemove = new ArrayList<>();
+                for (Edge e : edges) {
+                    if (e.target.equals(node)) toRemove.add(e);
+                }
+                if (!toRemove.isEmpty()) {
+                    removedIncoming.computeIfAbsent(from, k -> new ArrayList<>()).addAll(toRemove);
+                    edges.removeAll(toRemove);
+                }
+            }
+        }
+
+        PathResult result = dijkstraWithHopLimit(src, dst, maxHops);
+
+        // 恢复图
+        for (Map.Entry<String, List<Edge>> entry : removed.entrySet()) {
+            graph.put(entry.getKey(), entry.getValue());
+        }
+        for (Map.Entry<String, List<Edge>> entry : removedIncoming.entrySet()) {
+            graph.get(entry.getKey()).addAll(entry.getValue());
+        }
+
+        return result;
+    }
+
+    private PathResult dijkstraWithAvoidAndHops(String src, String dst,
+                                                 List<String> avoidNodes, int maxHops) {
+        return dijkstraWithHopLimitAndAvoid(src, dst, avoidNodes, maxHops);
+    }
+
+    private List<List<String>> permute(List<String> list) {
+        List<List<String>> result = new ArrayList<>();
+        if (list.isEmpty()) {
+            result.add(new ArrayList<>());
+            return result;
+        }
+        boolean[] used = new boolean[list.size()];
+        backtrackPermute(list, new ArrayList<>(), used, result);
+        return result;
+    }
+
+    private void backtrackPermute(List<String> list, List<String> current,
+                                   boolean[] used, List<List<String>> result) {
+        if (current.size() == list.size()) {
+            result.add(new ArrayList<>(current));
+            return;
+        }
+        for (int i = 0; i < list.size(); i++) {
+            if (used[i]) continue;
+            used[i] = true;
+            current.add(list.get(i));
+            backtrackPermute(list, current, used, result);
+            current.remove(current.size() - 1);
+            used[i] = false;
+        }
+    }
+
+    public static class TopologyAnalysisResult {
+        public final List<String> criticalNodes;
+        public final List<String> bottleneckEdges;
+        public TopologyAnalysisResult(List<String> criticalNodes, List<String> bottleneckEdges) {
+            this.criticalNodes = Collections.unmodifiableList(criticalNodes);
+            this.bottleneckEdges = Collections.unmodifiableList(bottleneckEdges);
+        }
     }
 
     public TopologySummary summarizeTopology() {

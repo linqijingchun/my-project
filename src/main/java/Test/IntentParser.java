@@ -36,6 +36,9 @@ class IntentParser {
         intent = parseAllShortestPaths(text, input);
         if (intent != null) return intent;
 
+        intent = parseConstrain(text, input);
+        if (intent != null) return intent;
+
         intent = parseShortestPath(text, input);
         if (intent != null) return intent;
 
@@ -46,6 +49,9 @@ class IntentParser {
         if (intent != null) return intent;
 
         intent = parseTopologySummary(text, input);
+        if (intent != null) return intent;
+
+        intent = parseAnalyze(text, input);
         if (intent != null) return intent;
 
         intent = parseShowGraph(text, input);
@@ -130,6 +136,10 @@ class IntentParser {
             case "summary":
             case "topology":
                 return Intent.summary(text);
+            case "analyze":
+                return Intent.analyze(text);
+            case "constrain":
+                return parseConstrainCommand(parts, text);
             default:
                 return null;
         }
@@ -137,6 +147,53 @@ class IntentParser {
     }
 
     // ==================== 自然语言解析 ====================
+
+    private Intent parseConstrainCommand(String[] parts, String raw) {
+        // constrain path <src> <dst> [via <n1,n2>] [avoid <n3>] [hops <N>]
+        if (parts.length < 4) return null;
+        // parts[0]=constrain, parts[1]=path, parts[2]=src, parts[3]=dst
+        if (!parts[1].equalsIgnoreCase("path")) return null;
+        String src = parts[2];
+        String dst = parts[3];
+
+        java.util.List<String> viaNodes = new java.util.ArrayList<>();
+        java.util.List<String> avoidNodes = new java.util.ArrayList<>();
+        Integer maxHops = null;
+
+        int i = 4;
+        while (i < parts.length) {
+            String keyword = parts[i].toLowerCase();
+            if (keyword.equals("via") && i + 1 < parts.length) {
+                for (String node : parts[i + 1].split(",")) {
+                    String n = node.trim();
+                    if (!n.isEmpty()) viaNodes.add(n);
+                }
+                i += 2;
+            } else if (keyword.equals("avoid") && i + 1 < parts.length) {
+                for (String node : parts[i + 1].split(",")) {
+                    String n = node.trim();
+                    if (!n.isEmpty()) avoidNodes.add(n);
+                }
+                i += 2;
+            } else if (keyword.equals("hops") && i + 1 < parts.length) {
+                try {
+                    maxHops = Integer.parseInt(parts[i + 1]);
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+                i += 2;
+            } else {
+                return null;
+            }
+        }
+
+        if (viaNodes.size() > 3) {
+            // 超出限制，返回 null 让上层走 UNKNOWN 报错
+            return null;
+        }
+
+        return Intent.constrain(raw, src, dst, viaNodes, avoidNodes, maxHops);
+    }
 
     private Intent parseAddDirectedEdge(String text, String raw) {
         if (!(text.contains("添加") || text.contains("新增") || text.contains("加入"))) {
@@ -221,6 +278,10 @@ class IntentParser {
     }
 
     private Intent parseTopologySummary(String text, String raw) {
+        // 如果包含分析意图的关键词，优先留给 parseAnalyze
+        if (text.contains("关键") || text.contains("瓶颈") || text.contains("影响")) {
+            return null;
+        }
         if ((text.contains("摘要") || text.contains("概览") || text.contains("分析"))
                 && (text.contains("拓扑") || text.contains("网络") || text.contains("图"))) {
             return Intent.summary(raw);
@@ -230,6 +291,70 @@ class IntentParser {
             return Intent.summary(raw);
         }
         return null;
+    }
+
+    private Intent parseAnalyze(String text, String raw) {
+        if (text.contains("关键节点") || text.contains("瓶颈") || text.contains("关键链路")
+                || text.contains("影响分析") || text.contains("拓扑分析")) {
+            return Intent.analyze(raw);
+        }
+        if (text.contains("分析") && (text.contains("关键") || text.contains("瓶颈")
+                || text.contains("影响") || text.contains("节点") || text.contains("链路"))) {
+            return Intent.analyze(raw);
+        }
+        return null;
+    }
+
+    private Intent parseConstrain(String text, String raw) {
+        if (!(text.contains("约束") || text.contains("限制") || text.contains("必经")
+                || text.contains("避开") || text.contains("跳数") || text.contains("经过"))) {
+            return null;
+        }
+        String[] nodes = extractTwoNodes(text);
+        if (nodes == null) return null;
+
+        java.util.List<String> viaNodes = new java.util.ArrayList<>();
+        java.util.List<String> avoidNodes = new java.util.ArrayList<>();
+        Integer maxHops = null;
+
+        // 提取必经节点：经过X、必经X
+        java.util.regex.Pattern viaPattern = java.util.regex.Pattern.compile(
+                "(?:经过|必经|途经)\\s*([A-Za-z0-9_]+(?:\\s*[、,和与]\\s*[A-Za-z0-9_]+)*)");
+        java.util.regex.Matcher viaMatcher = viaPattern.matcher(text);
+        if (viaMatcher.find()) {
+            String[] viaParts = viaMatcher.group(1).split("[、,和与\\s]+");
+            for (String v : viaParts) {
+                String n = v.trim();
+                if (!n.isEmpty()) viaNodes.add(n);
+            }
+        }
+
+        // 提取避开节点：避开X、不经过X
+        java.util.regex.Pattern avoidPattern = java.util.regex.Pattern.compile(
+                "(?:避开|不经过|不走|绕开|排除)\\s*([A-Za-z0-9_]+(?:\\s*[、,和与]\\s*[A-Za-z0-9_]+)*)");
+        java.util.regex.Matcher avoidMatcher = avoidPattern.matcher(text);
+        if (avoidMatcher.find()) {
+            String[] avoidParts = avoidMatcher.group(1).split("[、,和与\\s]+");
+            for (String v : avoidParts) {
+                String n = v.trim();
+                if (!n.isEmpty()) avoidNodes.add(n);
+            }
+        }
+
+        // 提取跳数限制：跳数不超过N、最多N跳、最多经过N个
+        java.util.regex.Pattern hopsPattern = java.util.regex.Pattern.compile(
+                "(?:跳数|跳|经过|中转)\\s*(?:不超过|最多|不大于|小于)?\\s*(\\d+)");
+        java.util.regex.Matcher hopsMatcher = hopsPattern.matcher(text);
+        if (hopsMatcher.find()) {
+            maxHops = Integer.parseInt(hopsMatcher.group(1));
+        }
+
+        if (viaNodes.isEmpty() && avoidNodes.isEmpty() && maxHops == null) {
+            return null;
+        }
+        if (viaNodes.size() > 3) return null;
+
+        return Intent.constrain(raw, nodes[0], nodes[1], viaNodes, avoidNodes, maxHops);
     }
 
     private Intent parseShowGraph(String text, String raw) {
