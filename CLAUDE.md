@@ -8,7 +8,7 @@
 - 构建：Maven 3.8+
 - 测试：JUnit 5
 - 仓库：https://github.com/linqijingchun/my-project
-- 当前版本：1.2（约束路径查询已完成）
+- 当前版本：1.4（K 条最短路径已完成）
 
 ## 编译与运行
 
@@ -24,7 +24,9 @@ java -cp target/classes Test.NetworkPathGUI # 运行 GUI
 ```
 src/main/java/Test/
 ├── PathOptimizerAgent.java    # 核心：图结构、Dijkstra、文件I/O、拓扑摘要、拓扑分析
-├── Edge.java                  # 边数据类
+├── Edge.java                  # 边数据类（支持多维指标）
+├── LinkMetrics.java           # 链路指标封装（时延/带宽/丢包/可靠性）
+├── OptimizeStrategy.java      # 优化策略枚举
 ├── NodeDist.java              # 优先队列节点
 ├── TopologySummary.java       # 拓扑摘要数据类
 │                              # （TopologyAnalysisResult 为 PathOptimizerAgent 内部类）
@@ -38,8 +40,8 @@ src/main/java/Test/
 └── NetworkPathGUI.java        # Swing GUI + GraphPanel 内部类
 
 src/test/java/Test/
-├── AgentTest.java             # 智能体集成测试（16个）
-└── PathOptimizerAgentTest.java # 核心算法单元测试（9个）
+├── AgentTest.java             # 智能体集成测试（35个）
+└── PathOptimizerAgentTest.java # 核心算法单元测试（28个）
 ```
 
 ## 代码规范
@@ -65,8 +67,8 @@ src/test/java/Test/
 | P0 | GUI 统一到 AgentCommandService | 已完成 | GUI 所有操作改为通过 Service 层执行 |
 | P1 | 增加 analyze 命令 | 已完成 | 关键节点分析 + 瓶颈链路识别 |
 | P2 | 增加约束路径查询 | 已完成 | 必经节点、避开节点、最大跳数（via/avoid/hops） |
-| P3 | 链路指标多维扩展 | 待做 | 时延、带宽、丢包率、可靠性，改动面大 |
-| P4 | K 条最短路径 | 待做 | Yen's algorithm，算法复杂度高 |
+| P3 | 链路指标多维扩展 | 已完成 | 时延、带宽、丢包率、可靠性 + 优化策略切换 |
+| P4 | K 条最短路径 | 已完成 | Yen's algorithm，查询前 K 条最短路径 |
 | P5 | GUI 可视化增强 | 待做 | 分析结果展示、自然语言输入 |
 
 ## 已知待改进项

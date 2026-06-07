@@ -36,7 +36,13 @@ class IntentParser {
         intent = parseAllShortestPaths(text, input);
         if (intent != null) return intent;
 
+        intent = parseKPath(text, input);
+        if (intent != null) return intent;
+
         intent = parseConstrain(text, input);
+        if (intent != null) return intent;
+
+        intent = parseStrategy(text, input);
         if (intent != null) return intent;
 
         intent = parseShortestPath(text, input);
@@ -68,20 +74,22 @@ class IntentParser {
 
         switch (cmd) {
             case "add":
-                if (parts.length == 4) {
+                if (parts.length >= 4) {
                     try {
-                        return Intent.addDirected(text, parts[1], parts[2],
-                                Integer.parseInt(parts[3]));
+                        int weight = Integer.parseInt(parts[3]);
+                        LinkMetrics metrics = parseMetricsFromParts(parts, 4);
+                        return Intent.addDirected(text, parts[1], parts[2], weight, metrics);
                     } catch (NumberFormatException e) {
                         return null;
                     }
                 }
                 break;
             case "addud":
-                if (parts.length == 4) {
+                if (parts.length >= 4) {
                     try {
-                        return Intent.addUndirected(text, parts[1], parts[2],
-                                Integer.parseInt(parts[3]));
+                        int weight = Integer.parseInt(parts[3]);
+                        LinkMetrics metrics = parseMetricsFromParts(parts, 4);
+                        return Intent.addUndirected(text, parts[1], parts[2], weight, metrics);
                     } catch (NumberFormatException e) {
                         return null;
                     }
@@ -95,6 +103,15 @@ class IntentParser {
             case "allpaths":
                 if (parts.length == 3) {
                     return Intent.allPaths(text, parts[1], parts[2]);
+                }
+                break;
+            case "kpath":
+                if (parts.length == 4) {
+                    try {
+                        return Intent.kPath(text, parts[1], parts[2], Integer.parseInt(parts[3]));
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
                 }
                 break;
             case "reach":
@@ -140,6 +157,8 @@ class IntentParser {
                 return Intent.analyze(text);
             case "constrain":
                 return parseConstrainCommand(parts, text);
+            case "strategy":
+                return parseStrategyCommand(parts, text);
             default:
                 return null;
         }
@@ -195,6 +214,84 @@ class IntentParser {
         return Intent.constrain(raw, src, dst, viaNodes, avoidNodes, maxHops);
     }
 
+    private Intent parseStrategyCommand(String[] parts, String raw) {
+        if (parts.length < 2) return null;
+        OptimizeStrategy strategy = parseStrategyName(parts[1]);
+        if (strategy == null) return null;
+        return Intent.strategy(raw, strategy);
+    }
+
+    private OptimizeStrategy parseStrategyName(String name) {
+        switch (name.toLowerCase()) {
+            case "weight":
+            case "权重":     return OptimizeStrategy.WEIGHT;
+            case "delay":
+            case "时延":
+            case "延迟":     return OptimizeStrategy.DELAY;
+            case "bandwidth":
+            case "带宽":     return OptimizeStrategy.BANDWIDTH;
+            case "loss":
+            case "丢包":
+            case "丢包率":   return OptimizeStrategy.PACKET_LOSS;
+            case "reliability":
+            case "可靠":
+            case "可靠性":   return OptimizeStrategy.RELIABILITY;
+            default:         return null;
+        }
+    }
+
+    /**
+     * 从 add 命令的 parts 数组中解析可选的 LinkMetrics
+     * 格式: add A B 5 delay 10 bandwidth 100 loss 0.5 reliability 99.9
+     * 从 startIndex 开始，支持 key-value 对（4个可选指标，顺序不固定）
+     */
+    private LinkMetrics parseMetricsFromParts(String[] parts, int startIndex) {
+        if (startIndex >= parts.length) return null;
+
+        Integer delay = null;
+        Integer bandwidth = null;
+        Double packetLoss = null;
+        Double reliability = null;
+
+        int i = startIndex;
+        while (i < parts.length - 1) {
+            String key = parts[i].toLowerCase();
+            String val = parts[i + 1];
+            try {
+                switch (key) {
+                    case "delay":
+                    case "时延":
+                        delay = Integer.parseInt(val);
+                        break;
+                    case "bandwidth":
+                    case "带宽":
+                        bandwidth = Integer.parseInt(val);
+                        break;
+                    case "loss":
+                    case "丢包":
+                    case "丢包率":
+                        packetLoss = Double.parseDouble(val);
+                        break;
+                    case "reliability":
+                    case "可靠":
+                    case "可靠性":
+                        reliability = Double.parseDouble(val);
+                        break;
+                    default:
+                        return null; // 未知 key，忽略 metrics
+                }
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            i += 2;
+        }
+
+        if (delay == null || bandwidth == null || packetLoss == null || reliability == null) {
+            return null; // 四个指标必须全部提供
+        }
+        return new LinkMetrics(delay, bandwidth, packetLoss, reliability);
+    }
+
     private Intent parseAddDirectedEdge(String text, String raw) {
         if (!(text.contains("添加") || text.contains("新增") || text.contains("加入"))) {
             return null;
@@ -244,6 +341,21 @@ class IntentParser {
         String[] nodes = extractTwoNodes(text);
         if (nodes == null) return null;
         return Intent.allPaths(raw, nodes[0], nodes[1]);
+    }
+
+    private Intent parseKPath(String text, String raw) {
+        if (!(text.contains("条最短路径") || text.contains("条路径")
+                || text.contains("备选路径") || text.contains("前几条")
+                || text.contains("条短路径"))) {
+            return null;
+        }
+        String[] nodes = extractTwoNodes(text);
+        if (nodes == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\s*条").matcher(text);
+        if (!m.find()) return null;
+        int k = Integer.parseInt(m.group(1));
+        if (k <= 0 || k > 10) return null;
+        return Intent.kPath(raw, nodes[0], nodes[1], k);
     }
 
     private Intent parseShortestPath(String text, String raw) {
@@ -303,6 +415,25 @@ class IntentParser {
             return Intent.analyze(raw);
         }
         return null;
+    }
+
+    private Intent parseStrategy(String text, String raw) {
+        if (!(text.contains("策略") || text.contains("优化目标") || text.contains("优化方式")
+                || text.contains("以时延") || text.contains("以带宽") || text.contains("以丢包")
+                || text.contains("以可靠") || text.contains("用时延") || text.contains("用带宽")
+                || text.contains("用丢包") || text.contains("用可靠"))) {
+            return null;
+        }
+
+        OptimizeStrategy strategy = null;
+        if (text.contains("时延") || text.contains("延迟")) strategy = OptimizeStrategy.DELAY;
+        else if (text.contains("带宽")) strategy = OptimizeStrategy.BANDWIDTH;
+        else if (text.contains("丢包")) strategy = OptimizeStrategy.PACKET_LOSS;
+        else if (text.contains("可靠")) strategy = OptimizeStrategy.RELIABILITY;
+        else if (text.contains("权重") || text.contains("综合")) strategy = OptimizeStrategy.WEIGHT;
+
+        if (strategy == null) return null;
+        return Intent.strategy(raw, strategy);
     }
 
     private Intent parseConstrain(String text, String raw) {

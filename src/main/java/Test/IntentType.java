@@ -16,5 +16,7 @@ enum IntentType {
     SUMMARY,
     ANALYZE,
     CONSTRAIN,
+    STRATEGY,
+    KPATH,
     UNKNOWN
 }

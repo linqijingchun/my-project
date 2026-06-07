@@ -327,4 +327,156 @@ class AgentTest {
         assertTrue(response.isSuccess());
         assertEquals("constrain path A D via B", response.getNormalizedCommand());
     }
+
+    // ---------- 链路指标与策略测试 ----------
+
+    @Test
+    void testStrategyStandardCommand() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("strategy delay");
+        assertEquals(IntentType.STRATEGY, intent.getType());
+        assertEquals(OptimizeStrategy.DELAY, intent.getStrategy());
+    }
+
+    @Test
+    void testStrategyAllVariants() {
+        IntentParser parser = new IntentParser();
+        assertEquals(OptimizeStrategy.WEIGHT, parser.parse("strategy weight").getStrategy());
+        assertEquals(OptimizeStrategy.DELAY, parser.parse("strategy delay").getStrategy());
+        assertEquals(OptimizeStrategy.BANDWIDTH, parser.parse("strategy bandwidth").getStrategy());
+        assertEquals(OptimizeStrategy.PACKET_LOSS, parser.parse("strategy loss").getStrategy());
+        assertEquals(OptimizeStrategy.RELIABILITY, parser.parse("strategy reliability").getStrategy());
+    }
+
+    @Test
+    void testStrategyNaturalLanguage() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("设置优化策略为时延");
+        assertEquals(IntentType.STRATEGY, intent.getType());
+        assertEquals(OptimizeStrategy.DELAY, intent.getStrategy());
+    }
+
+    @Test
+    void testStrategyExecution() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        AgentResponse r = service.handle("strategy delay");
+        assertTrue(r.isSuccess());
+        assertTrue(r.getMessage().contains("时延"));
+        assertEquals("strategy delay", r.getNormalizedCommand());
+    }
+
+    @Test
+    void testAddEdgeWithMetricsCommand() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("add A B 5 delay 10 bandwidth 100 loss 0.5 reliability 99.9");
+        assertEquals(IntentType.ADD_DIRECTED, intent.getType());
+        assertEquals("A", intent.getSource());
+        assertEquals("B", intent.getTarget());
+        assertEquals(5, intent.getWeight().intValue());
+        assertNotNull(intent.getMetrics());
+        assertEquals(10, intent.getMetrics().delay);
+        assertEquals(100, intent.getMetrics().bandwidth);
+        assertEquals(0.5, intent.getMetrics().packetLoss, 0.001);
+        assertEquals(99.9, intent.getMetrics().reliability, 0.001);
+    }
+
+    @Test
+    void testAddEdgeWithMetricsExecution() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        AgentResponse r = service.handle("add A B 5 delay 10 bandwidth 100 loss 0.5 reliability 99.9");
+        assertTrue(r.isSuccess());
+        assertTrue(r.getMessage().contains("d=10"));
+    }
+
+    @Test
+    void testStrategyChangesPathResult() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        service.handle("add A B 10 delay 5 bandwidth 100 loss 0 reliability 100");
+        service.handle("add A C 1 delay 50 bandwidth 100 loss 0 reliability 100");
+        service.handle("add C B 1 delay 50 bandwidth 100 loss 0 reliability 100");
+
+        // WEIGHT 策略：A->C->B 代价2
+        service.handle("strategy weight");
+        AgentResponse r1 = service.handle("path A B");
+        assertTrue(r1.getMessage().contains("A -> C -> B"));
+        assertTrue(r1.getMessage().contains("总代价: 2"));
+
+        // DELAY 策略：A->B 时延5
+        service.handle("strategy delay");
+        AgentResponse r2 = service.handle("path A B");
+        assertTrue(r2.getMessage().contains("A -> B"));
+        assertTrue(r2.getMessage().contains("总代价: 5"));
+    }
+
+    @Test
+    void testAddEdgeWithoutMetricsStillWorks() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        AgentResponse r = service.handle("add A B 5");
+        assertTrue(r.isSuccess());
+        assertTrue(r.getMessage().contains("权重 5"));
+        assertFalse(r.getMessage().contains("d="));
+    }
+
+    // ---------- K 条最短路径测试 ----------
+
+    @Test
+    void testKPathStandardCommand() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("kpath A D 3");
+        assertEquals(IntentType.KPATH, intent.getType());
+        assertEquals("A", intent.getSource());
+        assertEquals("D", intent.getTarget());
+        assertEquals(Integer.valueOf(3), intent.getK());
+    }
+
+    @Test
+    void testKPathNaturalLanguage() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("查询A到D的3条最短路径");
+        assertEquals(IntentType.KPATH, intent.getType());
+        assertEquals("A", intent.getSource());
+        assertEquals("D", intent.getTarget());
+        assertEquals(Integer.valueOf(3), intent.getK());
+    }
+
+    @Test
+    void testKPathExecution() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        service.handle("add A B 1");
+        service.handle("add B D 2");
+        service.handle("add A C 1");
+        service.handle("add C D 2");
+        service.handle("add B E 1");
+        service.handle("add E D 2");
+
+        AgentResponse response = service.handle("kpath A D 3");
+        assertTrue(response.isSuccess());
+        assertTrue(response.getMessage().contains("共找到 3 条路径"));
+        assertTrue(response.getMessage().contains("路径1:"));
+        assertTrue(response.getMessage().contains("路径3:"));
+        assertEquals("kpath A D 3", response.getNormalizedCommand());
+    }
+
+    @Test
+    void testKPathUnreachable() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        service.handle("add A B 1");
+        service.handle("add C D 1");
+
+        AgentResponse response = service.handle("kpath A D 3");
+        assertFalse(response.isSuccess());
+        assertTrue(response.getMessage().contains("不可达"));
+    }
 }
