@@ -10,6 +10,7 @@ import java.util.*;
 
 class PathOptimizerAgent {
     private Map<String, List<Edge>> graph;
+    private OptimizeStrategy currentStrategy = OptimizeStrategy.WEIGHT;
 
     public Map<String, List<Edge>> getGraph() {
         return graph;
@@ -21,6 +22,14 @@ class PathOptimizerAgent {
 
     public void clear() {
         graph.clear();
+    }
+
+    public void setStrategy(OptimizeStrategy strategy) {
+        this.currentStrategy = strategy;
+    }
+
+    public OptimizeStrategy getStrategy() {
+        return currentStrategy;
     }
 
     // ---------- 图修改操作 ----------
@@ -45,6 +54,24 @@ class PathOptimizerAgent {
             }
         }
         graph.get(from).add(new Edge(to, weight));
+    }
+
+    public void addDirectedEdge(String from, String to, int weight, LinkMetrics metrics) {
+        validateWeight(weight);
+        ensureNode(from);
+        ensureNode(to);
+        for (Edge e : graph.get(from)) {
+            if (e.target.equals(to)) {
+                throw new IllegalArgumentException(
+                        "边已存在: " + from + " -> " + to + " (当前权重 " + e.weight + ")，如需修改请使用 update 命令");
+            }
+        }
+        graph.get(from).add(new Edge(to, weight, metrics));
+    }
+
+    public void addUndirectedEdge(String a, String b, int weight, LinkMetrics metrics) {
+        addDirectedEdge(a, b, weight, metrics);
+        addDirectedEdge(b, a, weight, metrics);
     }
 
     public void addUndirectedEdge(String a, String b, int weight) {
@@ -108,7 +135,7 @@ class PathOptimizerAgent {
 
             for (Edge e : graph.get(u)) {
                 String v = e.target;
-                int newDist = d + e.weight;
+                int newDist = d + e.getCost(currentStrategy);
                 if (newDist < dist.get(v)) {
                     dist.put(v, newDist);
                     prev.put(v, u);
@@ -170,7 +197,7 @@ class PathOptimizerAgent {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
             String[] parts = line.split("\\s+");
-            if (parts.length != 3) {
+            if (parts.length != 3 && parts.length != 7) {
                 System.err.println("忽略无效行: " + line);
                 continue;
             }
@@ -184,7 +211,13 @@ class PathOptimizerAgent {
                 continue;
             }
             try {
-                addDirectedEdge(from, to, weight);
+                if (parts.length == 7) {
+                    LinkMetrics metrics = LinkMetrics.fromFileString(
+                            new String[]{parts[3], parts[4], parts[5], parts[6]});
+                    addDirectedEdge(from, to, weight, metrics);
+                } else {
+                    addDirectedEdge(from, to, weight);
+                }
             } catch (IllegalArgumentException e) {
                 System.err.println("忽略无效行: " + line + "，" + e.getMessage());
             }
@@ -196,11 +229,15 @@ class PathOptimizerAgent {
      */
     public void saveToFile(String filename) throws IOException {
         try (PrintWriter writer = new PrintWriter(Files.newBufferedWriter(Paths.get(filename), StandardCharsets.UTF_8))) {
-            writer.println("# 有向图拓扑文件，格式: from to weight");
+            writer.println("# 有向图拓扑文件，格式: from to weight [delay bandwidth loss reliability]");
             for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
                 String from = entry.getKey();
                 for (Edge e : entry.getValue()) {
-                    writer.printf("%s %s %d%n", from, e.target, e.weight);
+                    if (e.metrics != null) {
+                        writer.printf("%s %s %d %s%n", from, e.target, e.weight, e.metrics.toFileString());
+                    } else {
+                        writer.printf("%s %s %d%n", from, e.target, e.weight);
+                    }
                 }
             }
         }
@@ -229,7 +266,7 @@ class PathOptimizerAgent {
             if (d != dist.get(u)) continue;
             for (Edge e : graph.get(u)) {
                 String v = e.target;
-                int nd = d + e.weight;
+                int nd = d + e.getCost(currentStrategy);
                 if (nd < dist.get(v)) {
                     dist.put(v, nd);
                     prevList.get(v).clear();
@@ -269,6 +306,112 @@ class PathOptimizerAgent {
             backtrack(src, prev, prevList, current, result);
         }
         current.remove(current.size() - 1);
+    }
+
+    // ---------- K 条最短路径（Yen's algorithm） ----------
+
+    /**
+     * Yen's K 最短路径算法
+     * 返回按代价升序排列的前 K 条路径
+     */
+    public List<PathResult> yenKShortestPaths(String src, String dst, int K) {
+        if (K <= 0) return Collections.emptyList();
+        if (!graph.containsKey(src) || !graph.containsKey(dst)) return Collections.emptyList();
+
+        List<PathResult> A = new ArrayList<>();
+        PriorityQueue<PathResult> B = new PriorityQueue<>(
+                (a, b) -> a.totalCost - b.totalCost);
+
+        // Step 1: 求 P1
+        PathResult p1 = dijkstra(src, dst);
+        if (p1 == null) return Collections.emptyList();
+        A.add(p1);
+
+        // Step 2: 迭代求 P2 ~ PK
+        for (int i = 1; i < K; i++) {
+            PathResult prev = A.get(A.size() - 1);
+            List<String> prevPath = prev.path;
+
+            for (int j = 0; j < prevPath.size() - 1; j++) {
+                String spurNode = prevPath.get(j);
+                List<String> rootPath = new ArrayList<>(prevPath.subList(0, j + 1));
+                int rootCost = calculatePathCost(rootPath);
+
+                // 临时删除边，记录 (源节点 -> 被删边)
+                Map<String, List<Edge>> removed = new HashMap<>();
+
+                // 1. 禁止已有结果中以 rootPath 为前缀的路径走同一条下一段边
+                for (PathResult r : A) {
+                    if (r.path.size() > j && r.path.subList(0, j + 1).equals(rootPath)) {
+                        removeEdgeRecord(r.path.get(j), r.path.get(j + 1), removed);
+                    }
+                }
+
+                // 2. 禁止 rootPath 内部走回头路
+                for (int n = 0; n < j; n++) {
+                    removeEdgeRecord(rootPath.get(n), rootPath.get(n + 1), removed);
+                }
+
+                // 从偏离节点跑 Dijkstra
+                PathResult spurResult = dijkstra(spurNode, dst);
+
+                if (spurResult != null) {
+                    List<String> fullPath = new ArrayList<>(rootPath);
+                    fullPath.addAll(spurResult.path.subList(1, spurResult.path.size()));
+                    int totalCost = rootCost + spurResult.totalCost;
+
+                    boolean isDuplicate = false;
+                    for (PathResult existing : A) {
+                        if (existing.path.equals(fullPath)) {
+                            isDuplicate = true;
+                            break;
+                        }
+                    }
+                    if (!isDuplicate) {
+                        B.offer(new PathResult(fullPath, totalCost));
+                    }
+                }
+
+                // 恢复被删边
+                for (Map.Entry<String, List<Edge>> entry : removed.entrySet()) {
+                    graph.get(entry.getKey()).addAll(entry.getValue());
+                }
+            }
+
+            if (B.isEmpty()) break;
+            A.add(B.poll());
+        }
+
+        return A;
+    }
+
+    /**
+     * 临时删除 from→to 边，记录到 removed map 中
+     */
+    private void removeEdgeRecord(String from, String to, Map<String, List<Edge>> removed) {
+        if (!graph.containsKey(from)) return;
+        Iterator<Edge> it = graph.get(from).iterator();
+        while (it.hasNext()) {
+            Edge e = it.next();
+            if (e.target.equals(to)) {
+                removed.computeIfAbsent(from, k -> new ArrayList<>()).add(e);
+                it.remove();
+                break;
+            }
+        }
+    }
+
+    private int calculatePathCost(List<String> path) {
+        int cost = 0;
+        for (int i = 0; i < path.size() - 1; i++) {
+            for (Edge e : graph.get(path.get(i))) {
+                if (e.target.equals(path.get(i + 1))) {
+                    cost += e.getCost(currentStrategy);
+                    break;
+                }
+            }
+        }
+        return cost;
     }
 
     // ---------- 拓扑分析：关键节点 + 瓶颈链路 ----------
@@ -316,7 +459,7 @@ class PathOptimizerAgent {
                 String key = from + "->" + e.target;
                 int pass = edgePassCount.getOrDefault(key, 0);
                 bottleneckEdges.add(key);
-                bottleneckInfo.add(new int[]{e.weight, pass});
+                bottleneckInfo.add(new int[]{e.getCost(currentStrategy), pass});
             }
         }
         // 按 weight * passCount 综合排序
@@ -468,7 +611,7 @@ class PathOptimizerAgent {
 
             for (Edge e : graph.get(u)) {
                 String v = e.target;
-                int newDist = d + e.weight;
+                int newDist = d + e.getCost(currentStrategy);
                 int newHops = h + 1;
                 String vKey = v + "|" + newHops;
                 if (newDist < bestDist.getOrDefault(vKey, Integer.MAX_VALUE)) {
@@ -505,7 +648,7 @@ class PathOptimizerAgent {
         for (int i = 0; i < path.size() - 1; i++) {
             for (Edge e : graph.get(path.get(i))) {
                 if (e.target.equals(path.get(i + 1))) {
-                    totalCost += e.weight;
+                    totalCost += e.getCost(currentStrategy);
                     break;
                 }
             }

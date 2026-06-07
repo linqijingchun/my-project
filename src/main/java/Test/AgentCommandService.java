@@ -36,6 +36,9 @@ class AgentCommandService {
                 case ALLPATHS:
                     response = handleAllShortestPaths(intent);
                     break;
+                case KPATH:
+                    response = handleKPath(intent);
+                    break;
                 case REACH:
                     response = handleReachable(intent);
                     break;
@@ -69,6 +72,9 @@ class AgentCommandService {
                 case CONSTRAIN:
                     response = handleConstrain(intent);
                     break;
+                case STRATEGY:
+                    response = handleStrategy(intent);
+                    break;
                 case UNKNOWN:
                 default:
                     response = AgentResponse.error("未知命令，请重新输入");
@@ -90,17 +96,31 @@ class AgentCommandService {
     // ---------- 各指令处理器 ----------
 
     private AgentResponse handleAddDirectedEdge(Intent intent) {
-        agent.addDirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight());
-        return AgentResponse.success(
-                "已添加有向边 " + intent.getSource() + " -> " + intent.getTarget()
-                        + " 权重 " + intent.getWeight());
+        if (intent.getMetrics() != null) {
+            agent.addDirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight(), intent.getMetrics());
+        } else {
+            agent.addDirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight());
+        }
+        String msg = "已添加有向边 " + intent.getSource() + " -> " + intent.getTarget()
+                + " 权重 " + intent.getWeight();
+        if (intent.getMetrics() != null) {
+            msg += " [" + intent.getMetrics().toShortString() + "]";
+        }
+        return AgentResponse.success(msg);
     }
 
     private AgentResponse handleAddUndirectedEdge(Intent intent) {
-        agent.addUndirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight());
-        return AgentResponse.success(
-                "已添加无向边 " + intent.getSource() + " <-> " + intent.getTarget()
-                        + " 权重 " + intent.getWeight());
+        if (intent.getMetrics() != null) {
+            agent.addUndirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight(), intent.getMetrics());
+        } else {
+            agent.addUndirectedEdge(intent.getSource(), intent.getTarget(), intent.getWeight());
+        }
+        String msg = "已添加无向边 " + intent.getSource() + " <-> " + intent.getTarget()
+                + " 权重 " + intent.getWeight();
+        if (intent.getMetrics() != null) {
+            msg += " [" + intent.getMetrics().toShortString() + "]";
+        }
+        return AgentResponse.success(msg);
     }
 
     private AgentResponse handleShortestPath(Intent intent) {
@@ -136,6 +156,26 @@ class AgentCommandService {
                     .append(" 代价: ").append(r.totalCost).append("\n");
         }
         return AgentResponse.successWithPaths(sb.toString(), results);
+    }
+
+    private AgentResponse handleKPath(Intent intent) {
+        java.util.List<PathOptimizerAgent.PathResult> results =
+                agent.yenKShortestPaths(intent.getSource(), intent.getTarget(), intent.getK());
+
+        if (results.isEmpty()) {
+            return AgentResponse.error(
+                    intent.getSource() + " 到 " + intent.getTarget() + " 不可达");
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("共找到 ").append(results.size()).append(" 条路径:\n");
+        for (int i = 0; i < results.size(); i++) {
+            PathOptimizerAgent.PathResult r = results.get(i);
+            sb.append("路径").append(i + 1).append(": ")
+                    .append(String.join(" -> ", r.path))
+                    .append(" 代价: ").append(r.totalCost).append("\n");
+        }
+        return AgentResponse.success(sb.toString());
     }
 
     private AgentResponse handleReachable(Intent intent) {
@@ -226,6 +266,7 @@ class AgentCommandService {
                         + "  addud <from> <to> <weight>      添加无向边\n"
                         + "  path <src> <dst>                查询最短路径\n"
                         + "  allpaths <src> <dst>            查询所有最短路径\n"
+                        + "  kpath <src> <dst> <K>           查询前 K 条最短路径\n"
                         + "  reach <src> <dst>               判断是否可达\n"
                         + "  update <from> <to> <weight>     修改边的权重\n"
                         + "  remove <from> <to>              删除一条边\n"
@@ -238,6 +279,10 @@ class AgentCommandService {
                         + "  analyze                         分析关键节点和瓶颈链路\n"
                         + "  constrain path <src> <dst>      约束路径查询\n"
                         + "    [via <n1,n2>] [avoid <n3>] [hops <N>]\n"
+                        + "  strategy <type>                 切换优化策略\n"
+                        + "    (weight/delay/bandwidth/loss/reliability)\n"
+                        + "  add <from> <to> <w> [指标...]   添加带指标的边\n"
+                        + "    delay <ms> bandwidth <Mbps> loss <%> reliability <%>\n"
                         + "  exit                            退出程序\n\n"
                         + "二、自然语言示例\n"
                         + "  添加B到D长度为1\n"
@@ -301,6 +346,19 @@ class AgentCommandService {
             sb.append(" (实际跳数: ").append(result.path.size() - 1).append(")");
         }
         return AgentResponse.successWithPath(sb.toString(), result);
+    }
+
+    private AgentResponse handleStrategy(Intent intent) {
+        agent.setStrategy(intent.getStrategy());
+        String strategyName;
+        switch (intent.getStrategy()) {
+            case DELAY:      strategyName = "时延"; break;
+            case BANDWIDTH:  strategyName = "带宽"; break;
+            case PACKET_LOSS: strategyName = "丢包率"; break;
+            case RELIABILITY: strategyName = "可靠性"; break;
+            default:         strategyName = "综合权重"; break;
+        }
+        return AgentResponse.success("优化策略已切换为: " + strategyName);
     }
 
     private AgentResponse handleTopologySummary() {

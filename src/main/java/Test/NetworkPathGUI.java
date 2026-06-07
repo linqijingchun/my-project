@@ -99,6 +99,15 @@ public class NetworkPathGUI extends JFrame {
         filePanel.add(saveBtn);
         controlPanel.add(filePanel);
 
+        // 优化策略
+        JPanel strategyPanel = new JPanel(new GridLayout(1, 2, 5, 5));
+        strategyPanel.setBorder(BorderFactory.createTitledBorder("优化策略"));
+        String[] strategies = {"WEIGHT", "DELAY", "BANDWIDTH", "PACKET_LOSS", "RELIABILITY"};
+        JComboBox<String> strategyBox = new JComboBox<>(strategies);
+        strategyPanel.add(new JLabel("当前策略:"));
+        strategyPanel.add(strategyBox);
+        controlPanel.add(strategyPanel);
+
         // 其他操作
         JPanel otherPanel = new JPanel(new GridLayout(1, 2, 5, 5));
         otherPanel.setBorder(BorderFactory.createTitledBorder("其他"));
@@ -141,6 +150,11 @@ public class NetworkPathGUI extends JFrame {
             appendMessage("已刷新图形");
         });
         clearBtn.addActionListener(e -> clearGraph());
+        strategyBox.addActionListener(e -> {
+            String selected = (String) strategyBox.getSelectedItem();
+            AgentResponse response = commandService.handle("strategy " + selected.toLowerCase());
+            appendMessage(response.getMessage());
+        });
     }
 
     private void addDirectedEdge() {
