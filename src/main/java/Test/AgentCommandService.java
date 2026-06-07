@@ -175,7 +175,7 @@ class AgentCommandService {
                     .append(String.join(" -> ", r.path))
                     .append(" 代价: ").append(r.totalCost).append("\n");
         }
-        return AgentResponse.success(sb.toString());
+        return AgentResponse.successWithPaths(sb.toString(), results);
     }
 
     private AgentResponse handleReachable(Intent intent) {
@@ -319,7 +319,7 @@ class AgentCommandService {
                 sb.append("  ").append(i + 1).append(". ").append(result.bottleneckEdges.get(i)).append("\n");
             }
         }
-        return AgentResponse.success(sb.toString());
+        return AgentResponse.successWithAnalyze(sb.toString(), result);
     }
 
     private AgentResponse handleConstrain(Intent intent) {
