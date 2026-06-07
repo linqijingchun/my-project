@@ -8,54 +8,64 @@ class AgentResponse {
     private final String message;
     private final PathOptimizerAgent.PathResult pathResult;
     private final List<PathOptimizerAgent.PathResult> pathResults;
+    private final PathOptimizerAgent.TopologyAnalysisResult analyzeResult;
     private final String originalInput;
     private final String normalizedCommand;
 
     private AgentResponse(boolean success, String message,
                           PathOptimizerAgent.PathResult pathResult,
                           List<PathOptimizerAgent.PathResult> pathResults,
+                          PathOptimizerAgent.TopologyAnalysisResult analyzeResult,
                           String originalInput, String normalizedCommand) {
         this.success = success;
         this.message = message;
         this.pathResult = pathResult;
         this.pathResults = pathResults;
+        this.analyzeResult = analyzeResult;
         this.originalInput = originalInput;
         this.normalizedCommand = normalizedCommand;
     }
 
     static AgentResponse success(String message) {
         return new AgentResponse(true, message, null,
-                Collections.emptyList(), null, null);
+                Collections.emptyList(), null, null, null);
     }
 
     static AgentResponse successWithPath(String message,
                                          PathOptimizerAgent.PathResult pathResult) {
         return new AgentResponse(true, message, pathResult,
-                Collections.emptyList(), null, null);
+                Collections.emptyList(), null, null, null);
     }
 
     static AgentResponse successWithPaths(String message,
                                           List<PathOptimizerAgent.PathResult> pathResults) {
         return new AgentResponse(true, message, null,
-                pathResults, null, null);
+                pathResults, null, null, null);
+    }
+
+    static AgentResponse successWithAnalyze(String message,
+                                             PathOptimizerAgent.TopologyAnalysisResult analyzeResult) {
+        return new AgentResponse(true, message, null,
+                Collections.emptyList(), analyzeResult, null, null);
     }
 
     static AgentResponse error(String message) {
         return new AgentResponse(false, message, null,
-                Collections.emptyList(), null, null);
+                Collections.emptyList(), null, null, null);
     }
 
     // 替代原来的 withCommandInfo(String, String)
     AgentResponse withIntent(Intent intent) {
         return new AgentResponse(
                 this.success, this.message, this.pathResult, this.pathResults,
-                intent.getRawInput(), intent.toNormalizedCommand());
+                this.analyzeResult, intent.getRawInput(), intent.toNormalizedCommand());
     }
 
     public boolean isSuccess()       { return success; }
     public String getMessage()       { return message; }
     public PathOptimizerAgent.PathResult getPathResult() { return pathResult; }
     public List<PathOptimizerAgent.PathResult> getPathResults() { return pathResults; }
+    public PathOptimizerAgent.TopologyAnalysisResult getAnalyzeResult() { return analyzeResult; }
     public String getOriginalInput()     { return originalInput; }
     public String getNormalizedCommand() { return normalizedCommand; }
 }

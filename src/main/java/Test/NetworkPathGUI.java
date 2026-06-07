@@ -2,10 +2,12 @@ package Test;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.*;
 import java.awt.geom.*;
 import java.util.*;
 import java.util.List;
 import Test.PathOptimizerAgent.PathResult;
+import Test.PathOptimizerAgent.TopologyAnalysisResult;
 
 /**
  * 网络路径寻优智能体 - 图形界面版
@@ -16,45 +18,45 @@ public class NetworkPathGUI extends JFrame {
     private GraphPanel graphPanel;
     private JTextArea messageArea;
     private JTextField srcField, dstField, fromField, toField, weightField, fileField;
-    private PathResult currentHighlightPath;   // 当前高亮的最短路径
+    private JTextField kField;
+    private JTextField viaField, avoidField, hopsField;
+    private JTextField nlpField;
+    private JComboBox<String> strategyBox;
+    private PathResult currentHighlightPath;
 
     public NetworkPathGUI() {
         agent = new PathOptimizerAgent();
         commandService = new AgentCommandService(agent);
-        // 预添加一些演示节点（可选），可注释
         initDemo();
         initUI();
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(900, 700);
+        setSize(1000, 750);
         setLocationRelativeTo(null);
         setVisible(true);
     }
 
     private void initDemo() {
-        // 演示：通过命令服务添加节点和边
-        commandService.handle("add A B 5");
-        commandService.handle("add A C 2");
-        commandService.handle("add B D 1");
-        commandService.handle("add C B 3");
-        commandService.handle("add C D 4");
-        commandService.handle("add D E 2");
+        commandService.handle("add A B 5 delay 10 bandwidth 100 loss 0.5 reliability 99.9");
+        commandService.handle("add A C 2 delay 30 bandwidth 200 loss 0.1 reliability 99.99");
+        commandService.handle("add B D 1 delay 5 bandwidth 100 loss 0.2 reliability 99.95");
+        commandService.handle("add C B 3 delay 15 bandwidth 150 loss 0.3 reliability 99.9");
+        commandService.handle("add C D 4 delay 20 bandwidth 80 loss 1.0 reliability 99.0");
+        commandService.handle("add D E 2 delay 8 bandwidth 300 loss 0.05 reliability 99.99");
     }
 
     private void initUI() {
         setTitle("网络路径寻优智能体");
         setLayout(new BorderLayout());
 
-        // 中央绘图面板
         graphPanel = new GraphPanel(agent, this);
         add(graphPanel, BorderLayout.CENTER);
 
-        // 右侧控制面板（可以使用多个面板，这里放在右侧）
+        // 右侧控制面板（全部放在滚动面板中）
         JPanel controlPanel = new JPanel();
         controlPanel.setLayout(new BoxLayout(controlPanel, BoxLayout.Y_AXIS));
         controlPanel.setBorder(BorderFactory.createTitledBorder("操作面板"));
-        controlPanel.setMinimumSize(new Dimension(280, 0));   // 确保最小宽度
 
-        // 添加边区域
+        // === 添加边 ===
         JPanel addEdgePanel = new JPanel(new GridLayout(4, 2, 5, 5));
         addEdgePanel.setBorder(BorderFactory.createTitledBorder("添加边"));
         addEdgePanel.add(new JLabel("起点:"));
@@ -72,8 +74,8 @@ public class NetworkPathGUI extends JFrame {
         addEdgePanel.add(addUndirectedBtn);
         controlPanel.add(addEdgePanel);
 
-        // 查询区域
-        JPanel queryPanel = new JPanel(new GridLayout(3, 2, 5, 5));
+        // === 路径查询 ===
+        JPanel queryPanel = new JPanel(new GridLayout(4, 2, 5, 5));
         queryPanel.setBorder(BorderFactory.createTitledBorder("路径查询"));
         queryPanel.add(new JLabel("起点:"));
         srcField = new JTextField(8);
@@ -81,13 +83,38 @@ public class NetworkPathGUI extends JFrame {
         queryPanel.add(new JLabel("终点:"));
         dstField = new JTextField(8);
         queryPanel.add(dstField);
+        queryPanel.add(new JLabel("K值:"));
+        kField = new JTextField("3", 8);
+        queryPanel.add(kField);
         JButton pathBtn = new JButton("最短路径");
         JButton allPathsBtn = new JButton("所有最短路径");
+        JButton kPathBtn = new JButton("K条路径");
+        JButton reachBtn = new JButton("可达判断");
         queryPanel.add(pathBtn);
         queryPanel.add(allPathsBtn);
+        queryPanel.add(kPathBtn);
+        queryPanel.add(reachBtn);
         controlPanel.add(queryPanel);
 
-        // 文件操作
+        // === 约束路径 ===
+        JPanel constrainPanel = new JPanel(new GridLayout(4, 2, 5, 5));
+        constrainPanel.setBorder(BorderFactory.createTitledBorder("约束路径"));
+        constrainPanel.add(new JLabel("必经节点(via):"));
+        viaField = new JTextField(8);
+        constrainPanel.add(viaField);
+        constrainPanel.add(new JLabel("避开节点(avoid):"));
+        avoidField = new JTextField(8);
+        constrainPanel.add(avoidField);
+        constrainPanel.add(new JLabel("最大跳数(hops):"));
+        hopsField = new JTextField(8);
+        constrainPanel.add(hopsField);
+        JButton constrainBtn = new JButton("约束查询");
+        JButton clearConstrainBtn = new JButton("清空");
+        constrainPanel.add(constrainBtn);
+        constrainPanel.add(clearConstrainBtn);
+        controlPanel.add(constrainPanel);
+
+        // === 拓扑文件 ===
         JPanel filePanel = new JPanel(new GridLayout(2, 2, 5, 5));
         filePanel.setBorder(BorderFactory.createTitledBorder("拓扑文件"));
         filePanel.add(new JLabel("文件名:"));
@@ -99,42 +126,61 @@ public class NetworkPathGUI extends JFrame {
         filePanel.add(saveBtn);
         controlPanel.add(filePanel);
 
-        // 优化策略
+        // === 优化策略 ===
         JPanel strategyPanel = new JPanel(new GridLayout(1, 2, 5, 5));
         strategyPanel.setBorder(BorderFactory.createTitledBorder("优化策略"));
         String[] strategies = {"WEIGHT", "DELAY", "BANDWIDTH", "PACKET_LOSS", "RELIABILITY"};
-        JComboBox<String> strategyBox = new JComboBox<>(strategies);
+        strategyBox = new JComboBox<>(strategies);
         strategyPanel.add(new JLabel("当前策略:"));
         strategyPanel.add(strategyBox);
         controlPanel.add(strategyPanel);
 
-        // 其他操作
+        // === 拓扑分析 ===
+        JPanel analyzePanel = new JPanel(new GridLayout(1, 2, 5, 5));
+        analyzePanel.setBorder(BorderFactory.createTitledBorder("拓扑分析"));
+        JButton analyzeBtn = new JButton("分析关键节点");
+        JButton clearAnalysisBtn = new JButton("清除分析");
+        analyzePanel.add(analyzeBtn);
+        analyzePanel.add(clearAnalysisBtn);
+        controlPanel.add(analyzePanel);
+
+        // === 其他操作 ===
         JPanel otherPanel = new JPanel(new GridLayout(1, 2, 5, 5));
         otherPanel.setBorder(BorderFactory.createTitledBorder("其他"));
-        JButton showBtn = new JButton("显示图");
+        JButton showBtn = new JButton("刷新图");
         JButton clearBtn = new JButton("清空图");
         otherPanel.add(showBtn);
         otherPanel.add(clearBtn);
         controlPanel.add(otherPanel);
 
-        // 消息输出区
-        messageArea = new JTextArea(10, 25);
-        messageArea.setEditable(false);
-        JScrollPane scrollPane = new JScrollPane(messageArea);
-        scrollPane.setBorder(BorderFactory.createTitledBorder("消息输出"));
-        scrollPane.setMinimumSize(new Dimension(280, 120));
-        scrollPane.setPreferredSize(new Dimension(300, 150));
+        // === 自然语言输入 ===
+        JPanel nlpPanel = new JPanel(new BorderLayout(5, 5));
+        nlpPanel.setBorder(BorderFactory.createTitledBorder("自然语言输入"));
+        nlpField = new JTextField();
+        JButton nlpSendBtn = new JButton("发送");
+        nlpPanel.add(nlpField, BorderLayout.CENTER);
+        nlpPanel.add(nlpSendBtn, BorderLayout.EAST);
+        controlPanel.add(nlpPanel);
 
-        // 右侧总面板 (垂直排列)
+        // 消息输出区
+        messageArea = new JTextArea(8, 25);
+        messageArea.setEditable(false);
+        JScrollPane msgScrollPane = new JScrollPane(messageArea);
+        msgScrollPane.setBorder(BorderFactory.createTitledBorder("消息输出"));
+        msgScrollPane.setPreferredSize(new Dimension(300, 140));
+
+        // 右侧面板：控制面板（可滚动） + 消息区
+        JScrollPane controlScrollPane = new JScrollPane(controlPanel);
+        controlScrollPane.setPreferredSize(new Dimension(320, 0));
+        controlScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
         JPanel rightPanel = new JPanel(new BorderLayout());
-        rightPanel.add(controlPanel, BorderLayout.NORTH);
-        rightPanel.add(scrollPane, BorderLayout.CENTER);
-        rightPanel.setMinimumSize(new Dimension(300, 600));
-        rightPanel.setPreferredSize(new Dimension(300, 600));
+        rightPanel.add(controlScrollPane, BorderLayout.CENTER);
+        rightPanel.add(msgScrollPane, BorderLayout.SOUTH);
+        rightPanel.setPreferredSize(new Dimension(330, 0));
 
         add(rightPanel, BorderLayout.EAST);
 
-        // 强制重新计算布局
         revalidate();
         repaint();
 
@@ -143,8 +189,18 @@ public class NetworkPathGUI extends JFrame {
         addUndirectedBtn.addActionListener(e -> addUndirectedEdge());
         pathBtn.addActionListener(e -> queryShortestPath());
         allPathsBtn.addActionListener(e -> queryAllShortestPaths());
+        kPathBtn.addActionListener(e -> queryKPaths());
+        reachBtn.addActionListener(e -> queryReachable());
+        constrainBtn.addActionListener(e -> queryConstrainedPath());
+        clearConstrainBtn.addActionListener(e -> {
+            viaField.setText("");
+            avoidField.setText("");
+            hopsField.setText("");
+        });
         loadBtn.addActionListener(e -> loadTopology());
         saveBtn.addActionListener(e -> saveTopology());
+        analyzeBtn.addActionListener(e -> runAnalyze());
+        clearAnalysisBtn.addActionListener(e -> clearAnalysis());
         showBtn.addActionListener(e -> {
             refreshGraphAndClearHighlight();
             appendMessage("已刷新图形");
@@ -154,8 +210,24 @@ public class NetworkPathGUI extends JFrame {
             String selected = (String) strategyBox.getSelectedItem();
             AgentResponse response = commandService.handle("strategy " + selected.toLowerCase());
             appendMessage(response.getMessage());
+            // 策略切换后自动刷新当前高亮路径
+            if (currentHighlightPath != null) {
+                String lastSrc = commandService.getContext().getLastSource();
+                String lastDst = commandService.getContext().getLastTarget();
+                if (lastSrc != null && lastDst != null) {
+                    AgentResponse r = commandService.handle("path " + lastSrc + " " + lastDst);
+                    if (r.isSuccess()) {
+                        currentHighlightPath = r.getPathResult();
+                    }
+                }
+            }
+            graphPanel.repaint();
         });
+        nlpSendBtn.addActionListener(e -> handleNaturalLanguage());
+        nlpField.addActionListener(e -> handleNaturalLanguage());
     }
+
+    // ========== 操作方法 ==========
 
     private void addDirectedEdge() {
         String from = fromField.getText().trim();
@@ -220,11 +292,7 @@ public class NetworkPathGUI extends JFrame {
         if (response.isSuccess()) {
             List<PathResult> results = response.getPathResults();
             if (!results.isEmpty()) {
-                String[] options = new String[results.size()];
-                for (int i = 0; i < results.size(); i++) options[i] = "路径 " + (i + 1);
-                int choice = JOptionPane.showOptionDialog(this, "选择要高亮显示的路径", "多条最短路径",
-                        JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-                currentHighlightPath = (choice >= 0) ? results.get(choice) : results.get(0);
+                currentHighlightPath = choosePath(results);
             } else {
                 currentHighlightPath = null;
             }
@@ -232,6 +300,144 @@ public class NetworkPathGUI extends JFrame {
             currentHighlightPath = null;
         }
         graphPanel.repaint();
+    }
+
+    private void queryKPaths() {
+        String src = srcField.getText().trim();
+        String dst = dstField.getText().trim();
+        String kStr = kField.getText().trim();
+        if (src.isEmpty() || dst.isEmpty()) {
+            appendError("起点和终点不能为空");
+            return;
+        }
+        int k;
+        try {
+            k = Integer.parseInt(kStr);
+        } catch (NumberFormatException ex) {
+            appendError("K 值必须是正整数");
+            return;
+        }
+        AgentResponse response = commandService.handle("kpath " + src + " " + dst + " " + k);
+        appendMessage(response.getMessage());
+        if (response.isSuccess()) {
+            List<PathResult> results = response.getPathResults();
+            if (!results.isEmpty()) {
+                currentHighlightPath = choosePath(results);
+            } else {
+                currentHighlightPath = null;
+            }
+        } else {
+            currentHighlightPath = null;
+        }
+        graphPanel.repaint();
+    }
+
+    private void queryReachable() {
+        String src = srcField.getText().trim();
+        String dst = dstField.getText().trim();
+        if (src.isEmpty() || dst.isEmpty()) {
+            appendError("起点和终点不能为空");
+            return;
+        }
+        AgentResponse response = commandService.handle("reach " + src + " " + dst);
+        appendMessage(response.getMessage());
+    }
+
+    private void queryConstrainedPath() {
+        String src = srcField.getText().trim();
+        String dst = dstField.getText().trim();
+        if (src.isEmpty() || dst.isEmpty()) {
+            appendError("起点和终点不能为空（在上方路径查询区域填写）");
+            return;
+        }
+        StringBuilder cmd = new StringBuilder("constrain path " + src + " " + dst);
+        String via = viaField.getText().trim();
+        String avoid = avoidField.getText().trim();
+        String hops = hopsField.getText().trim();
+        if (!via.isEmpty()) cmd.append(" via ").append(via);
+        if (!avoid.isEmpty()) cmd.append(" avoid ").append(avoid);
+        if (!hops.isEmpty()) cmd.append(" hops ").append(hops);
+
+        AgentResponse response = commandService.handle(cmd.toString());
+        appendMessage(response.getMessage());
+        if (response.isSuccess()) {
+            currentHighlightPath = response.getPathResult();
+        } else {
+            currentHighlightPath = null;
+        }
+        graphPanel.repaint();
+    }
+
+    private void runAnalyze() {
+        AgentResponse response = commandService.handle("analyze");
+        appendMessage(response.getMessage());
+        if (response.isSuccess() && response.getAnalyzeResult() != null) {
+            graphPanel.setAnalysisResult(response.getAnalyzeResult());
+        }
+        graphPanel.repaint();
+    }
+
+    private void clearAnalysis() {
+        graphPanel.clearAnalysisResult();
+        graphPanel.repaint();
+        appendMessage("已清除分析高亮");
+    }
+
+    private void handleNaturalLanguage() {
+        String text = nlpField.getText().trim();
+        if (text.isEmpty()) return;
+        nlpField.setText("");
+
+        AgentResponse response = commandService.handle(text);
+        if (response.getNormalizedCommand() != null
+                && !response.getNormalizedCommand().equals(response.getOriginalInput())) {
+            appendMessage("识别为: " + response.getNormalizedCommand());
+        }
+        appendMessage(response.getMessage());
+
+        // 路径高亮
+        if (response.isSuccess()) {
+            if (response.getPathResult() != null) {
+                currentHighlightPath = response.getPathResult();
+            } else if (response.getPathResults() != null && !response.getPathResults().isEmpty()) {
+                currentHighlightPath = choosePath(response.getPathResults());
+            }
+            // 分析结果可视化
+            if (response.getAnalyzeResult() != null) {
+                graphPanel.setAnalysisResult(response.getAnalyzeResult());
+            }
+        }
+
+        // 同步策略 combo box
+        syncStrategyCombo();
+
+        // 刷新图（边标签可能因策略变化而更新）
+        graphPanel.repaint();
+    }
+
+    private void syncStrategyCombo() {
+        OptimizeStrategy current = agent.getStrategy();
+        String name = current.name();
+        for (int i = 0; i < strategyBox.getItemCount(); i++) {
+            if (strategyBox.getItemAt(i).equals(name)) {
+                if (strategyBox.getSelectedIndex() != i) {
+                    strategyBox.setSelectedIndex(i);
+                }
+                return;
+            }
+        }
+    }
+
+    private PathResult choosePath(List<PathResult> results) {
+        if (results.size() == 1) return results.get(0);
+        String[] options = new String[results.size()];
+        for (int i = 0; i < results.size(); i++) {
+            options[i] = "路径 " + (i + 1) + ": " + String.join(" -> ", results.get(i).path)
+                    + " (代价:" + results.get(i).totalCost + ")";
+        }
+        int choice = JOptionPane.showOptionDialog(this, "选择要高亮的路径", "多条路径",
+                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        return (choice >= 0) ? results.get(choice) : results.get(0);
     }
 
     private void loadTopology() {
@@ -264,10 +470,12 @@ public class NetworkPathGUI extends JFrame {
     }
 
     private void clearGraph() {
-        int confirm = JOptionPane.showConfirmDialog(this, "确定要清空所有节点和边吗？", "确认清空", JOptionPane.YES_NO_OPTION);
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "确定要清空所有节点和边吗？", "确认清空", JOptionPane.YES_NO_OPTION);
         if (confirm == JOptionPane.YES_OPTION) {
             agent.clear();
             refreshGraphAndClearHighlight();
+            graphPanel.clearAnalysisResult();
             appendMessage("图已清空");
         }
     }
@@ -288,12 +496,14 @@ public class NetworkPathGUI extends JFrame {
         messageArea.setCaretPosition(messageArea.getDocument().getLength());
     }
 
-    // 提供外部访问当前高亮路径的方法
     public PathResult getCurrentHighlightPath() {
         return currentHighlightPath;
     }
 
-    // 刷新绘图（供 GraphPanel 调用）
+    public PathOptimizerAgent getAgent() {
+        return agent;
+    }
+
     public void refreshUI() {
         graphPanel.repaint();
     }
@@ -303,14 +513,21 @@ public class NetworkPathGUI extends JFrame {
     }
 }
 
-/**
- * 绘图面板，根据图结构绘制节点和边
- */
+// ========== 绘图面板 ==========
+
 class GraphPanel extends JPanel {
     private PathOptimizerAgent agent;
     private NetworkPathGUI parent;
-    private Map<String, Point2D> nodePositions; // 节点位置缓存
-    private int radius = 30; // 节点半径
+    private Map<String, Point2D> nodePositions;
+    private int radius = 30;
+
+    // 分析结果可视化
+    private Set<String> criticalNodes = Collections.emptySet();
+    private Set<String> bottleneckFrom = Collections.emptySet();
+    private Set<String> bottleneckTo = Collections.emptySet();
+
+    // 节点拖拽
+    private String draggingNode = null;
 
     public GraphPanel(PathOptimizerAgent agent, NetworkPathGUI parent) {
         this.agent = agent;
@@ -318,26 +535,91 @@ class GraphPanel extends JPanel {
         setBackground(Color.WHITE);
         setPreferredSize(new Dimension(600, 500));
         nodePositions = new HashMap<>();
+
+        // 鼠标拖拽支持
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                draggingNode = findNodeAt(e.getX(), e.getY());
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                draggingNode = null;
+            }
+        });
+
+        addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                if (draggingNode != null) {
+                    nodePositions.put(draggingNode, new Point2D.Double(e.getX(), e.getY()));
+                    repaint();
+                }
+            }
+        });
     }
 
-    /**
-     * 刷新图引用并重新计算节点位置
-     */
     public void refreshGraph(PathOptimizerAgent agent) {
         this.agent = agent;
         calculateNodePositions();
     }
 
-    /**
-     * 圆形布局：根据节点数量均匀分布在椭圆上
-     */
+    public void setAnalysisResult(TopologyAnalysisResult result) {
+        criticalNodes = new HashSet<>(result.criticalNodes);
+        bottleneckFrom = new HashSet<>();
+        bottleneckTo = new HashSet<>();
+        for (String edge : result.bottleneckEdges) {
+            // 格式: "A -> B (权重5, 通过3次)"
+            String[] parts = edge.split("\\s*->\\s*");
+            if (parts.length >= 2) {
+                bottleneckFrom.add(parts[0].trim());
+                String right = parts[1].trim();
+                // 提取目标节点名（去掉括号部分）
+                int parenIdx = right.indexOf('(');
+                String target = parenIdx > 0 ? right.substring(0, parenIdx).trim() : right.trim();
+                bottleneckTo.add(target);
+            }
+        }
+    }
+
+    public void clearAnalysisResult() {
+        criticalNodes = Collections.emptySet();
+        bottleneckFrom = Collections.emptySet();
+        bottleneckTo = Collections.emptySet();
+    }
+
+    private String findNodeAt(int mx, int my) {
+        for (Map.Entry<String, Point2D> entry : nodePositions.entrySet()) {
+            Point2D p = entry.getValue();
+            if (p.distance(mx, my) <= radius) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
     private void calculateNodePositions() {
         if (agent == null) return;
-        Map<String, List<Edge>> graph = agent.getGraph(); // 需要添加 getter
-        nodePositions.clear();
-        Set<String> nodes = graph.keySet();
-        if (nodes.isEmpty()) return;
-        int n = nodes.size();
+        Map<String, List<Edge>> graph = agent.getGraph();
+        // 保留已有节点的位置（拖拽后不重置）
+        Set<String> existingNodes = new HashSet<>(nodePositions.keySet());
+        Set<String> currentNodes = graph.keySet();
+
+        // 移除不再存在的节点
+        nodePositions.keySet().retainAll(currentNodes);
+
+        // 计算新增节点的位置
+        List<String> newNodes = new ArrayList<>();
+        for (String node : currentNodes) {
+            if (!nodePositions.containsKey(node)) {
+                newNodes.add(node);
+            }
+        }
+
+        if (newNodes.isEmpty()) return;
+
+        int n = currentNodes.size();
         int width = getWidth() - 100;
         int height = getHeight() - 100;
         if (width <= 0) width = 500;
@@ -346,12 +628,16 @@ class GraphPanel extends JPanel {
         double cy = height / 2.0 + 50;
         double rx = width / 2.2;
         double ry = height / 2.2;
+
+        // 将新节点放入空位
         int i = 0;
-        for (String node : nodes) {
-            double angle = 2 * Math.PI * i / n;
-            double x = cx + rx * Math.cos(angle);
-            double y = cy + ry * Math.sin(angle);
-            nodePositions.put(node, new Point2D.Double(x, y));
+        for (String node : currentNodes) {
+            if (!nodePositions.containsKey(node)) {
+                double angle = 2 * Math.PI * i / n;
+                double x = cx + rx * Math.cos(angle);
+                double y = cy + ry * Math.sin(angle);
+                nodePositions.put(node, new Point2D.Double(x, y));
+            }
             i++;
         }
     }
@@ -363,7 +649,6 @@ class GraphPanel extends JPanel {
         Graphics2D g2 = (Graphics2D) g;
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // 确保节点位置已计算（仅在缓存为空时计算）
         if (nodePositions.isEmpty() && agent.getGraph() != null && !agent.getGraph().isEmpty()) {
             calculateNodePositions();
         }
@@ -374,8 +659,9 @@ class GraphPanel extends JPanel {
             return;
         }
 
-        // 1. 绘制边（有向边带箭头）
-        g2.setStroke(new BasicStroke(2));
+        PathResult highlight = parent.getCurrentHighlightPath();
+
+        // 1. 绘制边
         for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
             String from = entry.getKey();
             Point2D fromP = nodePositions.get(from);
@@ -384,25 +670,33 @@ class GraphPanel extends JPanel {
                 String to = e.target;
                 Point2D toP = nodePositions.get(to);
                 if (toP == null) continue;
-                // 判断是否在高亮路径中
-                boolean isHighlight = false;
-                PathResult highlight = parent.getCurrentHighlightPath();
+
+                boolean isPathHighlight = false;
                 if (highlight != null && highlight.path != null) {
                     for (int i = 0; i < highlight.path.size() - 1; i++) {
-                        if (highlight.path.get(i).equals(from) && highlight.path.get(i+1).equals(to)) {
-                            isHighlight = true;
+                        if (highlight.path.get(i).equals(from) && highlight.path.get(i + 1).equals(to)) {
+                            isPathHighlight = true;
                             break;
                         }
                     }
                 }
-                if (isHighlight) {
+
+                boolean isBottleneck = bottleneckFrom.contains(from) && bottleneckTo.contains(to);
+
+                if (isPathHighlight) {
                     g2.setColor(Color.RED);
+                    g2.setStroke(new BasicStroke(3));
+                } else if (isBottleneck) {
+                    g2.setColor(Color.ORANGE);
                     g2.setStroke(new BasicStroke(3));
                 } else {
                     g2.setColor(Color.BLACK);
                     g2.setStroke(new BasicStroke(1));
                 }
-                drawArrowLine(g2, fromP, toP, e.weight, isHighlight);
+
+                // 边标签使用当前策略下的代价
+                int cost = e.getCost(agent.getStrategy());
+                drawArrowLine(g2, fromP, toP, cost, isPathHighlight || isBottleneck);
             }
         }
 
@@ -410,55 +704,52 @@ class GraphPanel extends JPanel {
         for (Map.Entry<String, Point2D> entry : nodePositions.entrySet()) {
             String node = entry.getKey();
             Point2D p = entry.getValue();
-            boolean isHighlight = false;
-            PathResult highlight = parent.getCurrentHighlightPath();
-            if (highlight != null && highlight.path != null && highlight.path.contains(node)) {
-                isHighlight = true;
-            }
-            if (isHighlight) {
+            boolean isPathNode = highlight != null && highlight.path != null && highlight.path.contains(node);
+            boolean isCritical = criticalNodes.contains(node);
+
+            if (isPathNode) {
                 g2.setColor(Color.RED);
-                g2.fillOval((int)(p.getX() - radius/2), (int)(p.getY() - radius/2), radius, radius);
+                g2.fillOval((int) (p.getX() - radius / 2), (int) (p.getY() - radius / 2), radius, radius);
                 g2.setColor(Color.WHITE);
+            } else if (isCritical) {
+                g2.setColor(Color.ORANGE);
+                g2.fillOval((int) (p.getX() - radius / 2), (int) (p.getY() - radius / 2), radius, radius);
+                g2.setColor(Color.BLACK);
             } else {
                 g2.setColor(Color.LIGHT_GRAY);
-                g2.fillOval((int)(p.getX() - radius/2), (int)(p.getY() - radius/2), radius, radius);
+                g2.fillOval((int) (p.getX() - radius / 2), (int) (p.getY() - radius / 2), radius, radius);
                 g2.setColor(Color.BLACK);
             }
-            g2.drawOval((int)(p.getX() - radius/2), (int)(p.getY() - radius/2), radius, radius);
+            g2.drawOval((int) (p.getX() - radius / 2), (int) (p.getY() - radius / 2), radius, radius);
             FontMetrics fm = g2.getFontMetrics();
             int sw = fm.stringWidth(node);
             int sh = fm.getHeight();
-            g2.drawString(node, (int)(p.getX() - sw/2), (int)(p.getY() + sh/4));
+            g2.drawString(node, (int) (p.getX() - sw / 2), (int) (p.getY() + sh / 4));
         }
     }
 
-    /**
-     * 绘制带权重的有向边，如果高亮则红色加粗
-     */
     private void drawArrowLine(Graphics2D g2, Point2D from, Point2D to, int weight, boolean highlight) {
         double angle = Math.atan2(to.getY() - from.getY(), to.getX() - from.getX());
         int arrowSize = 10;
-        // 起点和终点偏移（避免箭头覆盖节点）
         double offset = radius / 2.0;
         double startX = from.getX() + Math.cos(angle) * offset;
         double startY = from.getY() + Math.sin(angle) * offset;
         double endX = to.getX() - Math.cos(angle) * offset;
         double endY = to.getY() - Math.sin(angle) * offset;
-        g2.drawLine((int)startX, (int)startY, (int)endX, (int)endY);
+        g2.drawLine((int) startX, (int) startY, (int) endX, (int) endY);
 
-        // 画箭头
         double arrowAngle = Math.PI / 6;
         double x1 = endX - arrowSize * Math.cos(angle - arrowAngle);
         double y1 = endY - arrowSize * Math.sin(angle - arrowAngle);
         double x2 = endX - arrowSize * Math.cos(angle + arrowAngle);
         double y2 = endY - arrowSize * Math.sin(angle + arrowAngle);
-        g2.fillPolygon(new int[]{(int)endX, (int)x1, (int)x2},
-                new int[]{(int)endY, (int)y1, (int)y2}, 3);
+        g2.fillPolygon(new int[]{(int) endX, (int) x1, (int) x2},
+                new int[]{(int) endY, (int) y1, (int) y2}, 3);
 
-        // 绘制权重文本（放在边的中点附近）
         double midX = (startX + endX) / 2;
         double midY = (startY + endY) / 2;
-        g2.drawString(String.valueOf(weight), (int)midX, (int)midY - 5);
+        g2.setColor(highlight ? Color.RED : Color.DARK_GRAY);
+        g2.drawString(String.valueOf(weight), (int) midX, (int) midY - 5);
     }
 
     @Override
