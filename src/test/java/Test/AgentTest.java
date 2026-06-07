@@ -166,6 +166,52 @@ class AgentTest {
     }
 
     @Test
+    void testAnalyzeStandardCommand() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("analyze");
+        assertEquals(IntentType.ANALYZE, intent.getType());
+    }
+
+    @Test
+    void testAnalyzeNaturalLanguage() {
+        IntentParser parser = new IntentParser();
+        assertEquals(IntentType.ANALYZE, parser.parse("分析关键节点").getType());
+        assertEquals(IntentType.ANALYZE, parser.parse("分析瓶颈链路").getType());
+        // 验证"分析"含"关键/瓶颈"时不被误判为 SUMMARY
+        assertEquals(IntentType.ANALYZE, parser.parse("分析网络关键节点").getType());
+        assertEquals(IntentType.ANALYZE, parser.parse("分析拓扑瓶颈").getType());
+        // 验证纯"分析网络拓扑"仍走 SUMMARY
+        assertEquals(IntentType.SUMMARY, parser.parse("分析网络拓扑").getType());
+    }
+
+    @Test
+    void testAnalyzeExecution() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        service.handle("add A B 5");
+        service.handle("add B D 2");
+        service.handle("add A C 1");
+        service.handle("add C D 6");
+
+        AgentResponse response = service.handle("analyze");
+        assertTrue(response.isSuccess());
+        assertEquals("analyze", response.getNormalizedCommand());
+        assertTrue(response.getMessage().contains("关键节点"));
+        assertTrue(response.getMessage().contains("瓶颈链路"));
+    }
+
+    @Test
+    void testAnalyzeEmptyGraph() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        AgentResponse response = service.handle("analyze");
+        assertTrue(response.isSuccess());
+        assertTrue(response.getMessage().contains("图为空"));
+    }
+
+    @Test
     void testTopologySummaryCommand() {
         PathOptimizerAgent agent = new PathOptimizerAgent();
         AgentCommandService service = new AgentCommandService(agent);
@@ -178,5 +224,107 @@ class AgentTest {
         assertEquals("summary", response.getNormalizedCommand());
         assertTrue(response.getMessage().contains("节点数: 3"));
         assertTrue(response.getMessage().contains("边数: 2"));
+    }
+
+    // ---------- 约束路径测试 ----------
+
+    @Test
+    void testConstrainStandardCommand() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("constrain path A D via B avoid C hops 3");
+        assertEquals(IntentType.CONSTRAIN, intent.getType());
+        assertEquals("A", intent.getSource());
+        assertEquals("D", intent.getTarget());
+        assertEquals(java.util.Collections.singletonList("B"), intent.getViaNodes());
+        assertEquals(java.util.Collections.singletonList("C"), intent.getAvoidNodes());
+        assertEquals(Integer.valueOf(3), intent.getMaxHops());
+    }
+
+    @Test
+    void testConstrainCommandViaOnly() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("constrain path A D via B");
+        assertEquals(IntentType.CONSTRAIN, intent.getType());
+        assertEquals(java.util.Collections.singletonList("B"), intent.getViaNodes());
+        assertTrue(intent.getAvoidNodes().isEmpty());
+        assertNull(intent.getMaxHops());
+    }
+
+    @Test
+    void testConstrainCommandMultipleVia() {
+        IntentParser parser = new IntentParser();
+        Intent intent = parser.parse("constrain path A D via B,C");
+        assertEquals(IntentType.CONSTRAIN, intent.getType());
+        assertEquals(2, intent.getViaNodes().size());
+        assertTrue(intent.getViaNodes().contains("B"));
+        assertTrue(intent.getViaNodes().contains("C"));
+    }
+
+    @Test
+    void testConstrainNaturalLanguage() {
+        IntentParser parser = new IntentParser();
+
+        Intent i1 = parser.parse("从A到D经过B的最短路径");
+        assertEquals(IntentType.CONSTRAIN, i1.getType());
+        assertEquals("A", i1.getSource());
+        assertEquals("D", i1.getTarget());
+        assertTrue(i1.getViaNodes().contains("B"));
+
+        Intent i2 = parser.parse("从A到D避开C的路径");
+        assertEquals(IntentType.CONSTRAIN, i2.getType());
+        assertTrue(i2.getAvoidNodes().contains("C"));
+
+        Intent i3 = parser.parse("从A到D跳数不超过3的路径");
+        assertEquals(IntentType.CONSTRAIN, i3.getType());
+        assertEquals(Integer.valueOf(3), i3.getMaxHops());
+    }
+
+    @Test
+    void testConstrainExecution() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        service.handle("add A B 1");
+        service.handle("add B D 1");
+        service.handle("add A C 5");
+        service.handle("add C D 1");
+
+        // 强制经过 B
+        AgentResponse r1 = service.handle("constrain path A D via B");
+        assertTrue(r1.isSuccess());
+        assertTrue(r1.getMessage().contains("A -> B -> D"));
+        assertTrue(r1.getMessage().contains("必经节点: B"));
+
+        // 避开 B
+        AgentResponse r2 = service.handle("constrain path A D avoid B");
+        assertTrue(r2.isSuccess());
+        assertTrue(r2.getMessage().contains("A -> C -> D"));
+        assertTrue(r2.getMessage().contains("避开节点: B"));
+    }
+
+    @Test
+    void testConstrainUnreachable() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        service.handle("add A B 1");
+        service.handle("add C D 1");
+
+        AgentResponse response = service.handle("constrain path A D via B");
+        assertFalse(response.isSuccess());
+        assertTrue(response.getMessage().contains("不可达"));
+    }
+
+    @Test
+    void testConstrainNormalizedCommand() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        AgentCommandService service = new AgentCommandService(agent);
+
+        service.handle("add A B 1");
+        service.handle("add B D 1");
+
+        AgentResponse response = service.handle("constrain path A D via B");
+        assertTrue(response.isSuccess());
+        assertEquals("constrain path A D via B", response.getNormalizedCommand());
     }
 }

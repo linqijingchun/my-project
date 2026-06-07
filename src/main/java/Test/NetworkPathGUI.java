@@ -12,6 +12,7 @@ import Test.PathOptimizerAgent.PathResult;
  */
 public class NetworkPathGUI extends JFrame {
     private PathOptimizerAgent agent;
+    private AgentCommandService commandService;
     private GraphPanel graphPanel;
     private JTextArea messageArea;
     private JTextField srcField, dstField, fromField, toField, weightField, fileField;
@@ -19,6 +20,7 @@ public class NetworkPathGUI extends JFrame {
 
     public NetworkPathGUI() {
         agent = new PathOptimizerAgent();
+        commandService = new AgentCommandService(agent);
         // 预添加一些演示节点（可选），可注释
         initDemo();
         initUI();
@@ -29,13 +31,13 @@ public class NetworkPathGUI extends JFrame {
     }
 
     private void initDemo() {
-        // 演示：添加几个节点和边，方便初始展示
-        agent.addDirectedEdge("A", "B", 5);
-        agent.addDirectedEdge("A", "C", 2);
-        agent.addDirectedEdge("B", "D", 1);
-        agent.addDirectedEdge("C", "B", 3);
-        agent.addDirectedEdge("C", "D", 4);
-        agent.addDirectedEdge("D", "E", 2);
+        // 演示：通过命令服务添加节点和边
+        commandService.handle("add A B 5");
+        commandService.handle("add A C 2");
+        commandService.handle("add B D 1");
+        commandService.handle("add C B 3");
+        commandService.handle("add C D 4");
+        commandService.handle("add D E 2");
     }
 
     private void initUI() {
@@ -142,30 +144,36 @@ public class NetworkPathGUI extends JFrame {
     }
 
     private void addDirectedEdge() {
-        try {
-            String from = fromField.getText().trim();
-            String to = toField.getText().trim();
-            int weight = Integer.parseInt(weightField.getText().trim());
-            if (from.isEmpty() || to.isEmpty()) throw new IllegalArgumentException("节点名不能为空");
-            agent.addDirectedEdge(from, to, weight);
-            appendMessage("添加有向边: " + from + " -> " + to + " 权重 " + weight);
+        String from = fromField.getText().trim();
+        String to = toField.getText().trim();
+        String weight = weightField.getText().trim();
+        if (from.isEmpty() || to.isEmpty()) {
+            appendError("节点名不能为空");
+            return;
+        }
+        AgentResponse response = commandService.handle("add " + from + " " + to + " " + weight);
+        if (response.isSuccess()) {
+            appendMessage(response.getMessage());
             refreshGraphAndClearHighlight();
-        } catch (Exception ex) {
-            appendError("添加失败: " + ex.getMessage());
+        } else {
+            appendError(response.getMessage());
         }
     }
 
     private void addUndirectedEdge() {
-        try {
-            String from = fromField.getText().trim();
-            String to = toField.getText().trim();
-            int weight = Integer.parseInt(weightField.getText().trim());
-            if (from.isEmpty() || to.isEmpty()) throw new IllegalArgumentException("节点名不能为空");
-            agent.addUndirectedEdge(from, to, weight);
-            appendMessage("添加无向边: " + from + " <-> " + to + " 权重 " + weight);
+        String from = fromField.getText().trim();
+        String to = toField.getText().trim();
+        String weight = weightField.getText().trim();
+        if (from.isEmpty() || to.isEmpty()) {
+            appendError("节点名不能为空");
+            return;
+        }
+        AgentResponse response = commandService.handle("addud " + from + " " + to + " " + weight);
+        if (response.isSuccess()) {
+            appendMessage(response.getMessage());
             refreshGraphAndClearHighlight();
-        } catch (Exception ex) {
-            appendError("添加失败: " + ex.getMessage());
+        } else {
+            appendError(response.getMessage());
         }
     }
 
@@ -176,13 +184,12 @@ public class NetworkPathGUI extends JFrame {
             appendError("起点和终点不能为空");
             return;
         }
-        PathResult result = agent.shortestPath(src, dst);
-        if (result == null) {
-            appendMessage(src + " 到 " + dst + " 不可达");
-            currentHighlightPath = null;
+        AgentResponse response = commandService.handle("path " + src + " " + dst);
+        appendMessage(response.getMessage());
+        if (response.isSuccess()) {
+            currentHighlightPath = response.getPathResult();
         } else {
-            appendMessage("最短路径: " + String.join(" -> ", result.path) + "  总代价: " + result.totalCost);
-            currentHighlightPath = result;
+            currentHighlightPath = null;
         }
         graphPanel.repaint();
     }
@@ -194,26 +201,21 @@ public class NetworkPathGUI extends JFrame {
             appendError("起点和终点不能为空");
             return;
         }
-        List<PathResult> results = agent.getAllShortestPaths(src, dst);
-        if (results.isEmpty()) {
-            appendMessage(src + " 到 " + dst + " 不可达");
-            currentHighlightPath = null;
-        } else {
-            StringBuilder sb = new StringBuilder("找到 " + results.size() + " 条最短路径 (代价 " + results.get(0).totalCost + "):\n");
-            for (int i = 0; i < results.size(); i++) {
-                sb.append("  ").append(i+1).append(": ").append(String.join(" -> ", results.get(i).path)).append("\n");
-            }
-            appendMessage(sb.toString());
-            // 弹出对话框让用户选择高亮哪一条
-            String[] options = new String[results.size()];
-            for (int i = 0; i < results.size(); i++) options[i] = "路径 " + (i+1);
-            int choice = JOptionPane.showOptionDialog(this, "选择要高亮显示的路径", "多条最短路径",
-                    JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-            if (choice >= 0) {
-                currentHighlightPath = results.get(choice);
+        AgentResponse response = commandService.handle("allpaths " + src + " " + dst);
+        appendMessage(response.getMessage());
+        if (response.isSuccess()) {
+            List<PathResult> results = response.getPathResults();
+            if (!results.isEmpty()) {
+                String[] options = new String[results.size()];
+                for (int i = 0; i < results.size(); i++) options[i] = "路径 " + (i + 1);
+                int choice = JOptionPane.showOptionDialog(this, "选择要高亮显示的路径", "多条最短路径",
+                        JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+                currentHighlightPath = (choice >= 0) ? results.get(choice) : results.get(0);
             } else {
-                currentHighlightPath = results.get(0); // 默认高亮第一条
+                currentHighlightPath = null;
             }
+        } else {
+            currentHighlightPath = null;
         }
         graphPanel.repaint();
     }
@@ -224,12 +226,12 @@ public class NetworkPathGUI extends JFrame {
             appendError("请输入文件名");
             return;
         }
-        try {
-            agent.loadFromFile(filename);
-            appendMessage("成功从 " + filename + " 加载拓扑");
+        AgentResponse response = commandService.handle("load " + filename);
+        if (response.isSuccess()) {
+            appendMessage(response.getMessage());
             refreshGraphAndClearHighlight();
-        } catch (Exception ex) {
-            appendError("加载失败: " + ex.getMessage());
+        } else {
+            appendError(response.getMessage());
         }
     }
 
@@ -239,11 +241,11 @@ public class NetworkPathGUI extends JFrame {
             appendError("请输入文件名");
             return;
         }
-        try {
-            agent.saveToFile(filename);
-            appendMessage("成功保存到 " + filename);
-        } catch (Exception ex) {
-            appendError("保存失败: " + ex.getMessage());
+        AgentResponse response = commandService.handle("save " + filename);
+        if (response.isSuccess()) {
+            appendMessage(response.getMessage());
+        } else {
+            appendError(response.getMessage());
         }
     }
 

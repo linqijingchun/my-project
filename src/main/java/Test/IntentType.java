@@ -14,5 +14,7 @@ enum IntentType {
     EXPLAIN,
     HELP,
     SUMMARY,
+    ANALYZE,
+    CONSTRAIN,
     UNKNOWN
 }

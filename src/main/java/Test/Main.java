@@ -43,6 +43,9 @@ public class Main {
         System.out.println("  load <filename>                 - 从文件加载拓扑");
         System.out.println("  save <filename>                 - 保存拓扑到文件");
         System.out.println("  allpaths <src> <dst>            - 查询所有最短路径");
+        System.out.println("  constrain path <src> <dst>      - 约束路径查询");
+        System.out.println("    [via <n1,n2>] [avoid <n3>] [hops <N>]");
+        System.out.println("  analyze                         - 分析关键节点和瓶颈链路");
         System.out.println("  explain                         - 解释最近一次路径查询");
         System.out.println("  help                            - 查看使用指南");
         System.out.println("  summary                         - 输出拓扑摘要");
