@@ -2,6 +2,7 @@ package Test;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -459,5 +460,104 @@ class PathOptimizerAgentTest {
             assertTrue(results.get(i).totalCost <= results.get(i + 1).totalCost,
                     "路径代价应按升序排列");
         }
+    }
+
+    // ---------- 瓶颈评分修复 + GBK 编码兼容测试 ----------
+
+    @Test
+    void bottleneckEdgesWithPassCountZeroRankedByWeight() {
+        // 构建一个所有边 passCount 都为 0 的拓扑（无连通路径）
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        agent.addDirectedEdge("A", "B", 5);
+        agent.addDirectedEdge("C", "D", 10);
+        agent.addDirectedEdge("E", "F", 20);
+
+        PathOptimizerAgent.TopologyAnalysisResult result = agent.analyzeTopology();
+
+        // A->B, C->D, E->F 各自孤立，没有任何最短路径经过任何边
+        // 应按权重降序排列：E->F(20) > C->D(10) > A->B(5)
+        assertEquals(3, result.bottleneckEdges.size());
+        assertEquals(20, extractWeight(result.bottleneckEdges.get(0)));
+        assertEquals(10, extractWeight(result.bottleneckEdges.get(1)));
+        assertEquals(5, extractWeight(result.bottleneckEdges.get(2)));
+    }
+
+    @Test
+    void bottleneckEdgesWithPassCountAboveZeroRankedHigher() {
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        // A->B->D 是最短路径（A->B 和 B->D 被经过）
+        // A->C(100) 权重虽高但未被任何最短路径经过
+        agent.addDirectedEdge("A", "B", 1);
+        agent.addDirectedEdge("B", "D", 1);
+        agent.addDirectedEdge("A", "C", 100);
+
+        PathOptimizerAgent.TopologyAnalysisResult result = agent.analyzeTopology();
+
+        // 找到 passCount>0 和 passCount=0 的边在结果中的位置
+        int firstUsedIdx = -1;
+        int firstUnusedIdx = -1;
+        for (int i = 0; i < result.bottleneckEdges.size(); i++) {
+            String edge = result.bottleneckEdges.get(i);
+            if (edge.contains("经过0次")) {
+                if (firstUnusedIdx < 0) firstUnusedIdx = i;
+            } else {
+                if (firstUsedIdx < 0) firstUsedIdx = i;
+            }
+        }
+        // passCount>0 的边应排在 passCount=0 的边前面
+        if (firstUsedIdx >= 0 && firstUnusedIdx >= 0) {
+            assertTrue(firstUsedIdx < firstUnusedIdx,
+                    "passCount>0 的边应排在 passCount=0 的边前面");
+        }
+    }
+
+    @Test
+    void loadFromGBKFile() throws java.io.IOException {
+        // 创建一个 GBK 编码的拓扑文件
+        String tmpFile = "test_gbk_topology.txt";
+        String content = "# GBK 编码测试\nA B 5\nB C 3\n";
+        java.nio.file.Files.write(
+                java.nio.file.Paths.get(tmpFile),
+                content.getBytes(java.nio.charset.Charset.forName("GBK")));
+
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        agent.loadFromFile(tmpFile);
+
+        // 验证加载成功
+        assertNotNull(agent.getGraph().get("A"));
+        assertEquals(1, agent.getGraph().get("A").size());
+        assertEquals("B", agent.getGraph().get("A").get(0).target);
+        assertEquals(5, agent.getGraph().get("A").get(0).weight);
+
+        assertNotNull(agent.getGraph().get("B"));
+        assertEquals("C", agent.getGraph().get("B").get(0).target);
+
+        new java.io.File(tmpFile).delete();
+    }
+
+    @Test
+    void loadFromUTF8File() throws java.io.IOException {
+        // 创建一个 UTF-8 编码的拓扑文件
+        String tmpFile = "test_utf8_topology.txt";
+        String content = "# UTF-8 编码测试\nX Y 7\n";
+        java.nio.file.Files.write(
+                java.nio.file.Paths.get(tmpFile),
+                content.getBytes(StandardCharsets.UTF_8));
+
+        PathOptimizerAgent agent = new PathOptimizerAgent();
+        agent.loadFromFile(tmpFile);
+
+        assertNotNull(agent.getGraph().get("X"));
+        assertEquals("Y", agent.getGraph().get("X").get(0).target);
+        assertEquals(7, agent.getGraph().get("X").get(0).weight);
+
+        new java.io.File(tmpFile).delete();
+    }
+
+    /** 从瓶颈链路字符串中提取权重值，如 "A->B (权重10, 经过0次)" → 10 */
+    private int extractWeight(String bottleneckStr) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("权重(\\d+)").matcher(bottleneckStr);
+        if (m.find()) return Integer.parseInt(m.group(1));
+        return 0;
     }
 }

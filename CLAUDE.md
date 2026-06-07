@@ -8,7 +8,7 @@
 - 构建：Maven 3.8+
 - 测试：JUnit 5
 - 仓库：https://github.com/linqijingchun/my-project
-- 当前版本：1.5（GUI 可视化增强已完成）
+- 当前版本：1.6（已知问题修复完成）
 
 ## 编译与运行
 
@@ -41,7 +41,7 @@ src/main/java/Test/
 
 src/test/java/Test/
 ├── AgentTest.java             # 智能体集成测试（35个）
-└── PathOptimizerAgentTest.java # 核心算法单元测试（28个）
+└── PathOptimizerAgentTest.java # 核心算法单元测试（32个）
 ```
 
 ## 代码规范
@@ -73,8 +73,7 @@ src/test/java/Test/
 
 ## 已知待改进项
 
-- 瓶颈评分公式对 passCount=0 的边无法区分（score 恒为 0）
-- 拓扑文件编码已统一为 UTF-8，旧 GBK 文件不兼容
+（暂无）
 
 ## Git 工作流
 

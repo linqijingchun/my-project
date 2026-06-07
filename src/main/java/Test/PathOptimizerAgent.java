@@ -192,7 +192,16 @@ class PathOptimizerAgent {
         // 清空现有图
         graph.clear();
         Path path = Paths.get(filename);
-        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
+        byte[] bytes = Files.readAllBytes(path);
+        // 先尝试 UTF-8，若检测到替换字符则回退 GBK
+        String content = new String(bytes, StandardCharsets.UTF_8);
+        String[] lineArray;
+        if (content.indexOf('\uFFFD') >= 0) {
+            lineArray = new String(bytes, java.nio.charset.Charset.forName("GBK")).split("\\r?\\n");
+        } else {
+            lineArray = content.split("\\r?\\n");
+        }
+        List<String> lines = Arrays.asList(lineArray);
         for (String line : lines) {
             line = line.trim();
             if (line.isEmpty() || line.startsWith("#")) continue;
@@ -450,33 +459,49 @@ class PathOptimizerAgent {
         criticalNodes.sort((a, b) -> nodePassCount.get(b) - nodePassCount.get(a));
         List<String> topCritical = new ArrayList<>(criticalNodes.subList(0, Math.min(3, criticalNodes.size())));
 
-        // 瓶颈链路：取权重最高且经过次数较多的前3条边
-        List<String> bottleneckEdges = new ArrayList<>();
-        List<int[]> bottleneckInfo = new ArrayList<>(); // [weight, passCount]
+        // 瓶颈链路：经过次数>0的按 weight*passCount 排序，未经过的按 weight 排序补充
+        List<String> usedEdges = new ArrayList<>();
+        List<int[]> usedInfo = new ArrayList<>();
+        List<String> unusedEdges = new ArrayList<>();
+        List<Integer> unusedWeights = new ArrayList<>();
         for (Map.Entry<String, List<Edge>> entry : graph.entrySet()) {
             String from = entry.getKey();
             for (Edge e : entry.getValue()) {
                 String key = from + "->" + e.target;
                 int pass = edgePassCount.getOrDefault(key, 0);
-                bottleneckEdges.add(key);
-                bottleneckInfo.add(new int[]{e.getCost(currentStrategy), pass});
+                int cost = e.getCost(currentStrategy);
+                if (pass > 0) {
+                    usedEdges.add(key);
+                    usedInfo.add(new int[]{cost, pass});
+                } else {
+                    unusedEdges.add(key);
+                    unusedWeights.add(cost);
+                }
             }
         }
-        // 按 weight * passCount 综合排序
-        List<Integer> indices = new ArrayList<>();
-        for (int i = 0; i < bottleneckEdges.size(); i++) indices.add(i);
-        indices.sort((a, b) -> {
-            int scoreA = bottleneckInfo.get(a)[0] * bottleneckInfo.get(a)[1];
-            int scoreB = bottleneckInfo.get(b)[0] * bottleneckInfo.get(b)[1];
+        // 经过的边按 score = weight * passCount 降序
+        List<Integer> usedIdx = new ArrayList<>();
+        for (int i = 0; i < usedEdges.size(); i++) usedIdx.add(i);
+        usedIdx.sort((a, b) -> {
+            int scoreA = usedInfo.get(a)[0] * usedInfo.get(a)[1];
+            int scoreB = usedInfo.get(b)[0] * usedInfo.get(b)[1];
             return scoreB - scoreA;
         });
+        // 未经过的边按 weight 降序
+        List<Integer> unusedIdx = new ArrayList<>();
+        for (int i = 0; i < unusedEdges.size(); i++) unusedIdx.add(i);
+        unusedIdx.sort((a, b) -> unusedWeights.get(b) - unusedWeights.get(a));
+
         List<String> topBottleneck = new ArrayList<>();
-        for (int i = 0; i < Math.min(3, indices.size()); i++) {
-            int idx = indices.get(i);
-            String edge = bottleneckEdges.get(idx);
-            int weight = bottleneckInfo.get(idx)[0];
-            int pass = bottleneckInfo.get(idx)[1];
-            topBottleneck.add(edge + " (权重" + weight + ", 经过" + pass + "次)");
+        for (int i : usedIdx) {
+            if (topBottleneck.size() >= 3) break;
+            topBottleneck.add(usedEdges.get(i) + " (权重" + usedInfo.get(i)[0]
+                    + ", 经过" + usedInfo.get(i)[1] + "次)");
+        }
+        for (int i : unusedIdx) {
+            if (topBottleneck.size() >= 3) break;
+            topBottleneck.add(unusedEdges.get(i) + " (权重" + unusedWeights.get(i)
+                    + ", 经过0次)");
         }
 
         return new TopologyAnalysisResult(topCritical, topBottleneck);
